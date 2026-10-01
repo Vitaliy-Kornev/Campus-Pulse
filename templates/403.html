@@ -1,0 +1,24 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Not allowed · Campus Pulse</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'logo.svg' %}">
+  <style>
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; color: #1e293b; padding: 1.5rem; box-sizing: border-box; }
+    .box { max-width: 22rem; text-align: center; }
+    h1 { font-size: 1.25rem; margin: .75rem 0 .5rem; }
+    p { color: #64748b; line-height: 1.5; margin: 0 0 1.25rem; }
+    a { color: #1e40af; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>You don't have access to this page</h1>
+    <p>If you think you should, ask a Campus Pulse admin.</p>
+    <a href="/">Go to Campus Pulse</a>
+  </div>
+</body>
+</html>

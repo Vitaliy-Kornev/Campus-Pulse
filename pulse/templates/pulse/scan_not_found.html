@@ -1,0 +1,24 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code not found · Campus Pulse</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'logo.svg' %}">
+  <style>
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; color: #1e293b; padding: 1.5rem; box-sizing: border-box; }
+    .box { max-width: 22rem; text-align: center; }
+    h1 { font-size: 1.25rem; margin: .75rem 0 .5rem; }
+    p { color: #64748b; line-height: 1.5; margin: 0; }
+    .logo { width: 44px; height: 44px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <img class="logo" src="{% static 'logo.svg' %}" alt="Campus Pulse">
+    <h1>This flyer code isn't active</h1>
+    <p>We couldn't find a flyer for this QR code. Check that the whole code was scanned, or look for a web address printed on the flyer.</p>
+  </div>
+</body>
+</html>
