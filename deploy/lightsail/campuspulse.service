@@ -1,0 +1,16 @@
+[Unit]
+Description=Campus Pulse (gunicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=campuspulse
+Group=campuspulse
+WorkingDirectory=/srv/campus-pulse
+ExecStart=/srv/campus-pulse/.venv/bin/gunicorn config.wsgi --bind 127.0.0.1:8000 --workers 3 --timeout 30 --access-logfile - --error-logfile -
+Restart=always
+RestartSec=3
+# Settings come from /srv/campus-pulse/.env (read by Django).
+
+[Install]
+WantedBy=multi-user.target
