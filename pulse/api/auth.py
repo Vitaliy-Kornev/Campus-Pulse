@@ -13,7 +13,15 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from pulse.api.clubs import clubs_payload
 from pulse.forms import SignupForm
+from pulse.services import limits
+from pulse.services.tracking import get_client_ip
+
+# Failed log-ins allowed per account, and per IP (generous: campus Wi-Fi shares IPs), per window.
+LOGIN_FAILURES = 5
+LOGIN_FAILURES_PER_IP = 50
+LOGIN_WINDOW = 15 * 60
 from pulse.services.boards import get_default_campus
 
 
@@ -24,6 +32,8 @@ def user_payload(user):
         "email": user.email,
         "full_name": user.get_full_name(),
         "is_staff": user.is_staff,
+        # "club": the club they're working in now; "clubs": every club they're in or waiting to join.
+        **clubs_payload(user),
     }
 
 
@@ -55,6 +65,8 @@ def session(request):
                 "attribution": settings.MAP_TILE_ATTRIBUTION,
                 "max_zoom": settings.MAP_TILE_MAX_ZOOM,
             },
+            # Sentry DSNs are public by design; the browser needs it to report errors.
+            "sentry": {"dsn": settings.SENTRY_DSN, "environment": settings.SENTRY_ENVIRONMENT} if settings.SENTRY_DSN else None,
         },
     })
 
@@ -62,12 +74,20 @@ def session(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login_view(request):
-    user = authenticate(request, username=request.data.get("username", ""), password=request.data.get("password", ""))
+    # Failed logins are limited per account (password guessing) and, more loosely, per IP.
+    username = str(request.data.get("username", ""))
+    account_key, ip_key = f"login:{username.lower()}", f"login-ip:{get_client_ip(request)}"
+    if limits.is_over(account_key, LOGIN_FAILURES) or limits.is_over(ip_key, LOGIN_FAILURES_PER_IP):
+        raise limits.TooManyTries("failed log-ins", LOGIN_WINDOW)
+    user = authenticate(request, username=username, password=request.data.get("password", ""))
     if user is None:
+        limits.hit(account_key, LOGIN_WINDOW)
+        limits.hit(ip_key, LOGIN_WINDOW)
         return Response(
             {"non_field_errors": ["Please enter a correct username and password. Both fields may be case-sensitive."]},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    limits.clear(account_key)
     login(request, user)
     return Response({"user": user_payload(user)})
 
@@ -84,6 +104,7 @@ def logout_view(request):
 def signup(request):
     if request.user.is_authenticated:
         return Response({"non_field_errors": ["You are already logged in."]}, status=status.HTTP_400_BAD_REQUEST)
+    limits.enforce(f"signup:{get_client_ip(request)}", 20, 3600, "sign-ups from this network")
     form = SignupForm(request.data)
     if not form.is_valid():
         return form_errors(form)
@@ -106,9 +127,13 @@ def password_change(request):
 @permission_classes([AllowAny])
 def password_reset(request):
     """Email a reset link if the address matches an account. Always 204, so emails can't be probed."""
+    limits.enforce(f"reset-ip:{get_client_ip(request)}", 20, 3600, "reset requests from this network")
     form = PasswordResetForm(request.data)
     if not form.is_valid():
         return form_errors(form)
+    # Past 3 an hour for one address, quietly stop sending (same 204) so no one can flood an inbox.
+    if limits.hit(f"reset:{form.cleaned_data['email'].lower()}", 3600) > 3:
+        return Response(status=status.HTTP_204_NO_CONTENT)
     form.save(
         request=request,
         subject_template_name="registration/password_reset_subject.txt",

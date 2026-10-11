@@ -1,11 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource/fira-sans/400.css";
-@import "@fontsource/fira-sans/500.css";
-@import "@fontsource/fira-sans/600.css";
-@import "@fontsource/fira-sans/700.css";
-@import "@fontsource-variable/fira-code";
+@import "@fontsource-variable/overpass";
 /* Map library styles go in the base layer so Tailwind utilities can style popup content. */
 @import "leaflet/dist/leaflet.css" layer(base);
 @import "leaflet.markercluster/dist/MarkerCluster.css" layer(base);
@@ -13,17 +9,33 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Design system (from UI UX Pro Max, "data-dense dashboard"): blue for data, amber for highlights,
- * Fira Sans for text and Fira Code for numbers and codes. UMN maroon is the campus brand accent.
+ * Overpass draws the middle dot (·) with zero width, which glues "Floor 1·West Bank" together.
+ * This face takes over just that character, from whichever common system sans is installed;
+ * declared after the Overpass import, so it wins for U+00B7 only.
+ */
+@font-face {
+  font-family: "Overpass Variable";
+  src: local("Helvetica Neue"), local("HelveticaNeue"), local("Arial"), local("Segoe UI"), local("Roboto"), local("DejaVu Sans");
+  font-weight: 100 900;
+  unicode-range: U+00B7;
+}
+
+/*
+ * Visual world: University of Minnesota campus wayfinding signage. Maroon sign panels with white
+ * type, gold for the active state and the leading board, charcoal ink on a warm light ground,
+ * Overpass throughout. Every board wears a sign tag (see .cp-tag below) wherever it appears.
  */
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Fira Sans', ui-sans-serif, system-ui, sans-serif;
-    --font-mono: 'Fira Code Variable', ui-monospace, monospace;
+    --font-sans: 'Overpass Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
     --color-brand: var(--brand);
     --color-highlight: var(--highlight);
     --color-highlight-foreground: var(--highlight-foreground);
     --color-success: var(--success);
+    --color-panel: var(--panel);
+    --color-panel-foreground: var(--panel-foreground);
+    --color-panel-muted: var(--panel-muted);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -65,94 +77,218 @@
 }
 
 :root {
-    --background: #f8fafc;
-    --foreground: #0f172a;
+    --background: #edebe8;
+    --foreground: #2e2c2a;
     --card: #ffffff;
-    --card-foreground: #0f172a;
+    --card-foreground: #2e2c2a;
     --popover: #ffffff;
-    --popover-foreground: #0f172a;
-    --primary: #1e40af;
+    --popover-foreground: #2e2c2a;
+    --primary: #7a0019;
     --primary-foreground: #ffffff;
-    --secondary: #f1f5f9;
-    --secondary-foreground: #1e293b;
-    --muted: #f1f5f9;
-    --muted-foreground: #64748b;
-    --accent: #eff6ff;
-    --accent-foreground: #1e40af;
-    --destructive: #dc2626;
-    --border: #e2e8f0;
-    --input: #cbd5e1;
-    --ring: #3b82f6;
+    --secondary: #f3f1ee;
+    --secondary-foreground: #3b3b3b;
+    --muted: #f3f1ee;
+    --muted-foreground: #66615c;
+    --accent: #f6ebed;
+    --accent-foreground: #7a0019;
+    --destructive: #b42318;
+    --border: #d6d2cd;
+    --input: #c9c4be;
+    --ring: #7a0019;
     --brand: #7a0019;
-    --highlight: #f59e0b;
-    --highlight-foreground: #78350f;
-    --success: #15803d;
-    --chart-1: #2563eb;
-    --chart-2: #f59e0b;
-    --chart-3: #7a0019;
-    --chart-4: #93c5fd;
-    --chart-5: #475569;
-    --radius: 0.625rem;
+    /* Maroon sign panels: the header and the Top boards panel. */
+    --panel: #7a0019;
+    --panel-foreground: #ffffff;
+    --panel-muted: #5e0013;
+    --highlight: #ffcc33;
+    --highlight-foreground: #7a0019;
+    --success: #1a6b33;
+    /* Charts: maroon series, a gold dark enough to read as a line on white, charcoal. */
+    --chart-1: #7a0019;
+    --chart-2: #c99700;
+    --chart-3: #3b3b3b;
+    --chart-4: #b8a99a;
+    --chart-5: #66615c;
+    --radius: 0.5rem;
     --sidebar: #ffffff;
-    --sidebar-foreground: #0f172a;
-    --sidebar-primary: #1e40af;
+    --sidebar-foreground: #2e2c2a;
+    --sidebar-primary: #7a0019;
     --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #eff6ff;
-    --sidebar-accent-foreground: #1e40af;
-    --sidebar-border: #e2e8f0;
-    --sidebar-ring: #3b82f6;
+    --sidebar-accent: #f6ebed;
+    --sidebar-accent-foreground: #7a0019;
+    --sidebar-border: #d6d2cd;
+    --sidebar-ring: #7a0019;
 }
 
 .dark {
-    --background: #0b1120;
-    --foreground: #e2e8f0;
-    --card: #111827;
-    --card-foreground: #e2e8f0;
-    --popover: #111827;
-    --popover-foreground: #e2e8f0;
-    --primary: #3b82f6;
+    --background: #1b1918;
+    --foreground: #ece9e5;
+    --card: #252220;
+    --card-foreground: #ece9e5;
+    --popover: #252220;
+    --popover-foreground: #ece9e5;
+    --primary: #c43a52;
     --primary-foreground: #ffffff;
-    --secondary: #1e293b;
-    --secondary-foreground: #e2e8f0;
-    --muted: #1e293b;
-    --muted-foreground: #94a3b8;
-    --accent: #1e293b;
-    --accent-foreground: #e2e8f0;
-    --destructive: #f87171;
-    --border: rgb(255 255 255 / 10%);
-    --input: rgb(255 255 255 / 15%);
-    --ring: #60a5fa;
-    --brand: #fda4af;
-    --highlight: #fbbf24;
-    --highlight-foreground: #fef3c7;
-    --success: #4ade80;
-    --chart-1: #60a5fa;
-    --chart-2: #fbbf24;
-    --chart-3: #fda4af;
-    --chart-4: #1e3a8a;
-    --chart-5: #94a3b8;
-    --sidebar: #111827;
-    --sidebar-foreground: #e2e8f0;
-    --sidebar-primary: #3b82f6;
+    --secondary: #302c29;
+    --secondary-foreground: #ece9e5;
+    --muted: #302c29;
+    --muted-foreground: #aaa39c;
+    --accent: #3a2328;
+    --accent-foreground: #f3c7cf;
+    --destructive: #f2867a;
+    --border: rgb(255 255 255 / 12%);
+    --input: rgb(255 255 255 / 18%);
+    --ring: #ffcc33;
+    --brand: #c43a52;
+    --panel: #5e0013;
+    --panel-foreground: #ffffff;
+    --panel-muted: #48000f;
+    --highlight: #ffcc33;
+    --highlight-foreground: #5e0013;
+    --success: #6fcf8e;
+    --chart-1: #e0566d;
+    --chart-2: #ffcc33;
+    --chart-3: #d6d2cd;
+    --chart-4: #6e5f52;
+    --chart-5: #aaa39c;
+    --sidebar: #252220;
+    --sidebar-foreground: #ece9e5;
+    --sidebar-primary: #c43a52;
     --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #1e293b;
-    --sidebar-accent-foreground: #e2e8f0;
-    --sidebar-border: rgb(255 255 255 / 10%);
-    --sidebar-ring: #60a5fa;
+    --sidebar-accent: #3a2328;
+    --sidebar-accent-foreground: #f3c7cf;
+    --sidebar-border: rgb(255 255 255 / 12%);
+    --sidebar-ring: #ffcc33;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply font-sans;
+    font-feature-settings: "tnum" 1;
+    scrollbar-color: var(--input) transparent;
+  }
   body {
     @apply bg-background text-foreground antialiased;
+    caret-color: var(--primary);
+  }
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  a {
+    text-underline-offset: 3px;
   }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
   }
-  html {
-    @apply font-sans;
+}
+
+@layer components {
+  /*
+   * Sign tag: how a board appears everywhere. A short building tag, and optionally a count,
+   * on an enamel-sign chip. State is carried by fill and border, never by colour alone:
+   * filled = scanned, outlined = flyers up but no scans, dashed = no flyers, struck = retired.
+   */
+  .cp-tag {
+    display: inline-flex;
+    align-items: stretch;
+    height: 22px;
+    border-radius: 4px;
+    border: 1.5px solid var(--primary);
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 11.5px;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .cp-tag > b {
+    display: flex;
+    align-items: center;
+    padding: 2px 6px 0;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+  }
+  .cp-tag > span {
+    display: flex;
+    align-items: center;
+    padding: 2px 7px 0 6px;
+    font-weight: 600;
+    border-left: 1px solid color-mix(in oklab, currentColor 30%, transparent);
+  }
+  /* "+2": more boards clustered under this tag on a zoomed-out map. */
+  .cp-tag > i {
+    display: flex;
+    align-items: center;
+    padding: 2px 6px 0;
+    font-style: normal;
+    font-weight: 700;
+    border-left: 1px solid color-mix(in oklab, currentColor 30%, transparent);
+  }
+  /* Code-only tags share one width so the names beside them line up in lists. */
+  .cp-tag:not(:has(> span, > i)) {
+    min-width: 3.25rem;
+    justify-content: center;
+  }
+  .cp-tag[data-state="top"] {
+    background: var(--highlight);
+    border-color: var(--highlight);
+    color: var(--highlight-foreground);
+  }
+  .cp-tag[data-state="idle"] {
+    background: #fff;
+    color: var(--primary);
+  }
+  .cp-tag[data-state="empty"] {
+    background: #fff;
+    border-style: dashed;
+    border-color: #8a847e;
+    color: #5f5a55;
+  }
+  .cp-tag[data-state="retired"] {
+    background: #e4e0db;
+    border-color: #c9c4be;
+    color: #5f5a55;
+  }
+  .cp-tag[data-state="retired"] > b {
+    text-decoration: line-through;
+  }
+  .cp-tag[data-selected="true"] {
+    outline: 2px solid var(--highlight);
+    outline-offset: 2px;
+  }
+
+  /* On a map, a tag becomes a pin: a pointer below and a little lift off the ground. */
+  .cp-pin {
+    position: relative;
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.18), 0 4px 10px rgb(60 0 10 / 0.18);
+    transform: translate(-50%, calc(-100% - 6px));
+    width: max-content;
+  }
+  .cp-pin::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -7px;
+    margin-left: -5px;
+    border: 5px solid transparent;
+    border-bottom: 0;
+    border-top-color: inherit;
+  }
+  .cp-pin[data-state="empty"]::after,
+  .cp-pin[data-state="idle"]::after {
+    border-top-color: inherit;
+  }
+  .cp-pin-icon {
+    background: none;
+    border: 0;
+  }
+  .cp-pin-icon:focus-visible .cp-tag {
+    outline: 2px solid var(--highlight);
+    outline-offset: 2px;
   }
 }
 
@@ -166,15 +302,33 @@
 /* Transparent-background preview behind QR codes. */
 .checkerboard {
   background-color: #fff;
-  background-image: conic-gradient(#e2e8f0 25%, transparent 0 50%, #e2e8f0 0 75%, transparent 0);
+  background-image: conic-gradient(#e4e0db 25%, transparent 0 50%, #e4e0db 0 75%, transparent 0);
   background-size: 16px 16px;
 }
 
-/* Leaflet: popups and clusters in the app's type and colors. */
-.leaflet-container { font-family: var(--font-sans); }
-.leaflet-popup-content-wrapper { border-radius: var(--radius-lg); box-shadow: 0 8px 24px rgb(15 23 42 / 0.16); }
-.leaflet-popup-content { margin: 12px 14px; min-width: 220px; font-size: 13px; line-height: 1.45; }
-.cp-cluster {
-  display: flex; align-items: center; justify-content: center; border-radius: 9999px; color: #fff;
-  font-weight: 600; font-size: 12px; border: 2px solid #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+/* Leaflet: popups in the app's type, the zoom control squared off like the rest of the chrome. */
+.leaflet-container {
+  font-family: var(--font-sans);
+  background: #e9e6e1;
+}
+/* Warm the already-muted street map slightly so it sits on the paper background; the maroon and
+   gold board tags own the view. */
+.leaflet-tile-pane {
+  filter: sepia(0.14) contrast(0.94);
+}
+.leaflet-popup-content-wrapper {
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 28px rgb(46 44 42 / 0.2);
+}
+.leaflet-popup-content {
+  margin: 14px 16px;
+  min-width: 232px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.leaflet-bar a {
+  color: var(--foreground);
+}
+.leaflet-control-attribution {
+  font-size: 10px;
 }

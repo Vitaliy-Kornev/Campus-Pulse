@@ -6,7 +6,11 @@ from rest_framework.response import Response
 
 from pulse.api.serializers import FlyerCreateSerializer, RepostSerializer
 from pulse.models import Flyer
-from pulse.services import analytics, qr
+from pulse.services import analytics, limits, notifications, qr
+from pulse.services.tags import tag_map
+
+# Far above any real postering day; stops a runaway script from filling the database.
+FLYERS_PER_DAY = 300
 
 
 def flyer_payload(flyer, user):
@@ -14,7 +18,7 @@ def flyer_payload(flyer, user):
     flyer.total_scans = counts["total"]
     if not user.is_staff:
         counts.pop("bots")  # bot counts are shown to admins only
-    board, campaign = flyer.board, flyer.campaign
+    board, event = flyer.board, flyer.event
     return {
         "slug": flyer.slug,
         "label": flyer.label,
@@ -27,15 +31,35 @@ def flyer_payload(flyer, user):
         "destination_override": flyer.destination_override,
         "scan_url": qr.scan_url(flyer),
         "short_url": qr.short_url(flyer),
-        "board": {"id": board.id, "name": board.name, "area": board.area, "building": board.building, "floor": board.floor},
-        "campaign": {"id": campaign.id, "name": campaign.name},
+        "board": {
+            "id": board.id,
+            "tag": tag_map().get(board.id, ""),
+            "name": board.name,
+            "area": board.area,
+            "building": board.building,
+            "floor": board.floor,
+        },
+        "event": {
+            "id": event.id,
+            "name": event.name,
+            "event_type": event.event_type,
+            "start_date": event.start_date,
+            "end_date": event.end_date,
+            "has_ended": event.has_ended,
+        },
         "counts": counts,
+        # Up for days with no scans while the event is still ahead: suggest moving it.
+        "move_it": flyer.is_active
+        and not event.has_ended
+        and counts["total"] == 0
+        and flyer.days_posted >= notifications.MOVE_IT_AFTER_DAYS,
         "devices": analytics.device_breakdown(flyer.scans.filter(is_bot=False)),
     }
 
 
 @api_view(["POST"])
 def flyer_create(request):
+    limits.enforce(f"new-flyer:{request.user.pk}", FLYERS_PER_DAY, 86400, "new flyers today")
     serializer = FlyerCreateSerializer(data=request.data, user=request.user)
     serializer.is_valid(raise_exception=True)
     flyer = serializer.save()
@@ -59,12 +83,13 @@ def flyer_remove(request, slug):
 
 @api_view(["POST"])
 def flyer_repost(request, slug):
-    """A new flyer, with a new code, on another board for the same campaign."""
+    """A new flyer, with a new code, on another board for the same event."""
     original = analytics.get_flyer_for(request.user, slug)
+    limits.enforce(f"new-flyer:{request.user.pk}", FLYERS_PER_DAY, 86400, "new flyers today")
     serializer = RepostSerializer(data=request.data, original=original)
     serializer.is_valid(raise_exception=True)
     flyer = Flyer.objects.create(
-        campaign=original.campaign,
+        event=original.event,
         board=serializer.validated_data["board"],
         label=original.label,
         destination_override=original.destination_override,

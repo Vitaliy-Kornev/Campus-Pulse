@@ -92,6 +92,12 @@ systemctl daemon-reload
 systemctl enable --now campuspulse
 systemctl restart campuspulse
 
+step "Scheduling nightly database backups"
+install -m 644 "$APP_DIR/deploy/lightsail/campuspulse-backup.service" /etc/systemd/system/campuspulse-backup.service
+install -m 644 "$APP_DIR/deploy/lightsail/campuspulse-backup.timer" /etc/systemd/system/campuspulse-backup.timer
+systemctl daemon-reload
+systemctl enable --now campuspulse-backup.timer
+
 step "Configuring nginx"
 sed "s/__DOMAIN__/$DOMAIN/g" "$APP_DIR/deploy/lightsail/nginx.conf" > /etc/nginx/sites-available/campuspulse
 ln -sf /etc/nginx/sites-available/campuspulse /etc/nginx/sites-enabled/campuspulse

@@ -1,0 +1,7 @@
+[Unit]
+Description=Campus Pulse database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/campus-pulse/deploy/lightsail/backup.sh

@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.management import CommandError, call_command
 from django.test import TestCase
 
-from pulse.models import Board, Campaign, Flyer, Scan
+from pulse.models import Board, Club, Event, Flyer, Scan
 
 HEADER = "area,name,building,floor,description,latitude,longitude\n"
 
@@ -56,9 +56,10 @@ class SeedDemoTests(TestCase):
         call_command("seed_demo", seed=1, stdout=StringIO())
         call_command("seed_demo", seed=1, stdout=StringIO())
         self.assertEqual(Board.objects.count(), 41)
-        self.assertEqual(Campaign.objects.count(), 3)
-        self.assertGreaterEqual(Flyer.objects.count(), 15)
+        self.assertEqual(Event.objects.count(), 7)
+        self.assertEqual(Club.objects.count(), 5)
+        self.assertGreaterEqual(Flyer.objects.count(), 25)
         total = Scan.objects.count()
-        self.assertTrue(1800 <= total <= 2200, total)
+        self.assertTrue(1000 <= total <= 1700, total)
         bot_share = Scan.objects.filter(is_bot=True).count() / total
         self.assertTrue(0.02 < bot_share < 0.09, bot_share)

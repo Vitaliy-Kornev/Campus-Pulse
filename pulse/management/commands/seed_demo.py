@@ -1,6 +1,12 @@
-"""Seed the UMN campus, its boards, demo users, campaigns, flyers, and ~2,000 realistic scans.
+"""Seed the UMN campus, its boards, demo clubs and officers, their events, flyers, and realistic scans.
 
-Safe to re-run: boards are updated by name and the demo campaigns are rebuilt from scratch.
+Safe to re-run: boards are updated by name, and the demo clubs (with their events, flyers, and
+scans) are rebuilt from scratch. Clubs that aren't part of the demo are left alone.
+
+The history is shaped so every feature has something to show for `demo`'s club, Gopher Coders:
+another computer-science club (Women in Computing) did well at Keller Hall, Walter Library, and
+Mechanical Engineering, which drives Gopher Coders' recommendations; a past hackathon has a recap;
+an upcoming workshop has a poster with no scans (a move-it nudge); and someone is waiting to join.
 """
 
 import datetime
@@ -13,72 +19,147 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from pulse.models import Board, Campaign, Flyer, Scan
+from pulse.models import Board, Club, Event, Flyer, Membership, Notification, Scan
+from pulse.services import notifications
 from pulse.services.boards import get_default_campus, import_boards
 from pulse.services.tracking import MAX_USER_AGENT_LENGTH, detect_device, is_bot, make_visitor_hash
 
-TARGET_SCANS = 2000
 BOT_RATE = 0.05
 REPEAT_VISITOR_RATE = 0.15
 
-# How busy each spot is. Unlisted boards default to 1.0.
-BOARD_POPULARITY = {
-    "Coffman Union - Posting Areas": 3.2,
-    "Washington Ave Pedestrian Bridge - East": 2.6,
-    "Washington Ave Pedestrian Bridge - West": 2.0,
-    "Walter Library - Northrop Mall": 2.0,
-    "Willey Hall - East": 1.6,
-    "RecWell Center - Bulletin Boards": 1.5,
-    "Keller Hall - CS&E Main Office": 1.3,
-    "Pioneer Hall": 1.2,
-    "Frontier Hall": 1.0,
-    "Comstock Hall": 0.9,
-    "Carlson School - Level 1": 0.9,
-    "Mechanical Engineering - North": 0.7,
-    "Anderson Hall - Northwest 1": 0.6,
-    "Middlebrook Hall": 0.5,
-    "St. Paul Student Center - Posting Areas": 0.45,
-    "Akerman Hall - AEM Grad Lounge": 0.3,
-}
-
-# (board name, label, posted days ago, removed days ago or None)
-CAMPAIGNS = [
+# Each flyer: (board name, design label, posted N days ago, taken down N days ago or None, scans per day).
+# Event dates are days from today: negative is in the past.
+CLUBS = [
     {
-        "name": "Fall Career Fair 2026",
-        "destination_url": "https://example.com/career-fair",
-        "appeal": 1.0,
-        "flyers": [
-            ("Coffman Union - Posting Areas", "blue design", 28, None),
-            ("Washington Ave Pedestrian Bridge - East", "", 28, None),
-            ("Walter Library - Northrop Mall", "", 27, None),
-            ("Keller Hall - CS&E Main Office", "", 27, None),
-            ("Carlson School - Level 1", "", 26, None),
-            ("Willey Hall - East", "", 26, 6),
+        "name": "Gopher Coders",
+        "club_type": "academic",
+        "fields": ["computer-science", "data-science"],
+        "description": "Weekly coding workshops and an annual hackathon.",
+        "officers": [("demo", "Dana", "Demo")],
+        "pending": [("newofficer", "Nico", "Nguyen")],
+        "events": [
+            {
+                "name": "Intro to Git Workshop",
+                "event_type": "workshop",
+                "url": "https://example.com/git-workshop",
+                "start": 6, "end": 6,
+                "flyers": [
+                    ("Keller Hall - CS&E Main Office", "", 8, None, 6.0),
+                    ("Walter Library - Northrop Mall", "", 8, None, 4.5),
+                    ("Coffman Union - Posting Areas", "", 7, None, 5.0),
+                    ("Smith Hall - Northrop Mall", "", 7, None, 0.0),  # quiet: move-it nudge
+                ],
+            },
+            {
+                "name": "Gopher Hackathon",
+                "event_type": "competition",
+                "url": "https://example.com/hackathon",
+                "start": -12, "end": -11,
+                "flyers": [
+                    ("Mechanical Engineering - North", "", 30, None, 5.5),
+                    ("Akerman Hall - AEM Grad Lounge", "", 30, None, 2.0),
+                    ("Washington Ave Pedestrian Bridge - West", "", 29, None, 3.0),
+                    ("Comstock Hall", "", 28, None, 0.6),
+                    ("RecWell Center - Bulletin Boards", "", 28, None, 0.0),
+                ],
+            },
         ],
     },
     {
-        "name": "Gopher Hackathon",
-        "destination_url": "https://example.com/hackathon",
-        "appeal": 0.8,
-        "flyers": [
-            ("Mechanical Engineering - North", "", 21, None),
-            ("Akerman Hall - AEM Grad Lounge", "", 21, 9),
-            ("Washington Ave Pedestrian Bridge - West", "", 20, None),
-            ("Comstock Hall", "", 19, None),
-            ("RecWell Center - Bulletin Boards", "", 19, None),
+        "name": "Women in Computing",
+        "club_type": "academic",
+        "fields": ["computer-science", "computer-engineering"],
+        "description": "Community, mentorship, and career events for women in tech.",
+        # demo is an officer here too, to show one account working in two clubs.
+        "officers": [("wic", "Wren", "Ibsen"), ("demo", "Dana", "Demo")],
+        "events": [
+            {
+                "name": "Tech Talk: Careers in AI",
+                "event_type": "speaker",
+                "url": "https://example.com/ai-talk",
+                "start": -24, "end": -24,
+                "flyers": [
+                    ("Keller Hall - CS&E Main Office", "", 36, None, 9.0),
+                    ("Walter Library - Northrop Mall", "", 36, None, 7.5),
+                    ("Mechanical Engineering - North", "", 35, None, 6.0),
+                    ("Coffman Union - Posting Areas", "", 35, None, 5.0),
+                    ("Anderson Hall - Northwest 1", "", 34, None, 0.4),
+                ],
+            },
+            {
+                "name": "Resume Workshop",
+                "event_type": "workshop",
+                "url": "https://example.com/resume",
+                "start": -5, "end": -5,
+                "flyers": [
+                    ("Keller Hall - CS&E Main Office", "", 15, None, 8.0),
+                    ("Akerman Hall - AEM Grad Lounge", "", 15, None, 3.5),
+                    ("Smith Hall - Northrop Mall", "", 14, None, 0.5),
+                ],
+            },
         ],
     },
     {
-        "name": "Intramural Volleyball Signups",
-        "destination_url": "https://example.com/intramurals",
-        "appeal": 1.2,
-        "flyers": [
-            ("Pioneer Hall", "", 15, None),
-            ("Frontier Hall", "", 15, None),
-            ("Middlebrook Hall", "", 14, None),
-            ("Anderson Hall - Northwest 1", "", 14, None),
-            ("St. Paul Student Center - Posting Areas", "", 13, None),
-            ("Coffman Union - Posting Areas", "orange design", 12, None),
+        "name": "Carlson Finance Club",
+        "club_type": "academic",
+        "fields": ["finance", "accounting"],
+        "description": "Markets, investing, and recruiting prep.",
+        "officers": [("finance", "Farah", "Ince")],
+        "events": [
+            {
+                "name": "Wall Street Info Night",
+                "event_type": "info-session",
+                "url": "https://example.com/wall-street",
+                "start": -9, "end": -9,
+                "flyers": [
+                    ("Carlson School - Level 1", "", 20, None, 7.0),
+                    ("Carlson School - Student Lounges", "", 20, None, 6.0),
+                    ("Willey Hall - East", "", 19, None, 3.0),
+                    ("Washington Ave Pedestrian Bridge - East", "", 19, None, 4.0),
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Hmong Student Association",
+        "club_type": "cultural",
+        "fields": ["all-majors"],
+        "description": "Celebrating Hmong culture on campus.",
+        "officers": [("hsa", "Pa", "Vang")],
+        "events": [
+            {
+                "name": "Hmong New Year Celebration",
+                "event_type": "cultural",
+                "url": "https://example.com/hmong-new-year",
+                "start": 14, "end": 14,
+                "flyers": [
+                    ("Coffman Union - Posting Areas", "red design", 10, None, 9.0),
+                    ("Pioneer Hall", "", 10, None, 4.0),
+                    ("Frontier Hall", "", 9, None, 3.5),
+                    ("Centennial Hall", "", 9, None, 3.0),
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Intramural Volleyball Club",
+        "club_type": "sports",
+        "fields": ["kinesiology", "all-majors"],
+        "description": "Pickup games and an intramural league.",
+        "officers": [("volleyball", "Val", "Lee")],
+        "events": [
+            {
+                "name": "Fall League Signups",
+                "event_type": "recruitment",
+                "url": "https://example.com/volleyball",
+                "start": -2, "end": 3,
+                "flyers": [
+                    ("RecWell Center - Bulletin Boards", "", 16, None, 6.5),
+                    ("Pioneer Hall", "", 16, None, 3.0),
+                    ("Middlebrook Hall", "", 15, None, 2.0),
+                    ("St. Paul Student Center - Posting Areas", "", 15, 4, 1.0),
+                ],
+            },
         ],
     },
 ]
@@ -111,7 +192,7 @@ BOT_USER_AGENTS = [
 
 
 class Command(BaseCommand):
-    help = "Create the UMN campus, boards, demo users, campaigns, flyers, and realistic scans."
+    help = "Create the UMN campus, boards, demo clubs and officers, events, flyers, and realistic scans."
 
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible data")
@@ -120,6 +201,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         rng = random.Random(options["seed"])
         now = timezone.now()
+        today = timezone.localdate()
 
         campus = get_default_campus()
         campus.name = settings.CAMPUS_NAME
@@ -132,50 +214,84 @@ class Command(BaseCommand):
             created, updated = import_boards(handle, campus=campus)
         self.stdout.write(f"Boards: {created} created, {updated} updated.")
 
-        admin = self._user("admin", "admin", staff=True)
-        demo = self._user("demo", "demo", staff=False)
-        self.stdout.write("Users: admin / admin (staff), demo / demo (advertiser).")
+        self._user("admin", "admin", staff=True)
 
-        # Rebuild the demo campaigns (cascades to their flyers and scans).
-        Campaign.objects.filter(owner=demo, name__in=[c["name"] for c in CAMPAIGNS]).delete()
+        # Start fresh: drop the demo clubs (cascading to their events, flyers, scans, notices) and
+        # any club memberships the demo accounts hold, then rebuild.
+        demo_usernames = [u for spec in CLUBS for u, _, _ in spec["officers"] + spec.get("pending", [])]
+        Club.objects.filter(name__in=[spec["name"] for spec in CLUBS]).delete()
+        for membership in Membership.objects.filter(user__username__in=demo_usernames).select_related("club"):
+            club = membership.club
+            membership.delete()
+            if not club.memberships.exists():
+                club.delete()
 
         boards = {b.name: b for b in Board.objects.filter(campus=campus)}
-        flyer_plans = []
-        today = timezone.localdate()
-        for spec in CAMPAIGNS:
-            campaign = Campaign.objects.create(
-                owner=demo,
-                name=spec["name"],
-                destination_url=spec["destination_url"],
-                start_date=today - datetime.timedelta(days=30),
-                end_date=today + datetime.timedelta(days=30),
+        plans = []
+        for spec in CLUBS:
+            club = Club.objects.create(
+                name=spec["name"], club_type=spec["club_type"], fields=spec["fields"], description=spec["description"]
             )
-            for board_name, label, posted_ago, removed_ago in spec["flyers"]:
-                posted_at = self._at_local_hour(now - datetime.timedelta(days=posted_ago), rng.randint(8, 16))
-                removed_at = self._at_local_hour(now - datetime.timedelta(days=removed_ago), rng.randint(8, 16)) if removed_ago else None
-                flyer = Flyer.objects.create(
-                    campaign=campaign, board=boards[board_name], label=label, posted_at=posted_at, removed_at=removed_at
+            officers = []
+            for username, first, last in spec["officers"]:
+                user = self._user(username, username, staff=False, first=first, last=last)
+                Membership.objects.create(club=club, user=user, status=Membership.ACTIVE)
+                officers.append(user)
+            for username, first, last in spec.get("pending", []):
+                user = self._user(username, username, staff=False, first=first, last=last)
+                membership = Membership.objects.create(club=club, user=user, status=Membership.PENDING)
+                notifications.notify(
+                    club, Notification.JOIN_REQUEST, f"membership:{membership.pk}",
+                    f"{first} {last} asked to join {club.name}", "Approve or decline on your club page.", "/club",
                 )
-                weight = BOARD_POPULARITY.get(board_name, 1.0) * spec["appeal"]
-                flyer_plans.append((flyer, weight))
+            for e in spec["events"]:
+                event = Event.objects.create(
+                    club=club,
+                    created_by=officers[0],
+                    name=e["name"],
+                    event_type=e["event_type"],
+                    destination_url=e["url"],
+                    start_date=today + datetime.timedelta(days=e["start"]),
+                    end_date=today + datetime.timedelta(days=e["end"]),
+                )
+                for board_name, label, posted_ago, removed_ago, per_day in e["flyers"]:
+                    posted_at = self._at_local_hour(now - datetime.timedelta(days=posted_ago), rng.randint(8, 16))
+                    removed_at = self._at_local_hour(now - datetime.timedelta(days=removed_ago), rng.randint(8, 16)) if removed_ago else None
+                    flyer = Flyer.objects.create(event=event, board=boards[board_name], label=label, posted_at=posted_at, removed_at=removed_at)
+                    plans.append((flyer, per_day))
 
-        scans = self._make_scans(rng, now, flyer_plans)
+        scans = self._make_scans(rng, now, plans)
         created_scans = Scan.objects.bulk_create(scans, batch_size=500)
         # scanned_at is auto_now_add, so bulk_create stamps "now"; set the generated times afterwards.
         for scan, original in zip(created_scans, scans):
             scan.scanned_at = original._planned_at
         Scan.objects.bulk_update(created_scans, ["scanned_at"], batch_size=500)
 
+        # First scans already happened for these events; record them (one fresh, unread notice for
+        # the upcoming workshop shows the feature).
+        for event in Event.objects.filter(club__name__in=[s["name"] for s in CLUBS]):
+            first = Scan.objects.filter(flyer__event=event, is_bot=False).order_by("scanned_at").first()
+            if first:
+                event.first_scan_at = first.scanned_at
+                event.save(update_fields=["first_scan_at"])
+                if event.name == "Intro to Git Workshop":
+                    notifications.notify_first_scan(event)
+
         bots = sum(1 for s in scans if s.is_bot)
         self.stdout.write(self.style.SUCCESS(
-            f"Seeded {len(CAMPAIGNS)} campaigns, {len(flyer_plans)} flyers, {len(scans)} scans ({bots} bots)."
+            f"Seeded {len(CLUBS)} clubs, {sum(len(s['events']) for s in CLUBS)} events, {len(plans)} flyers, "
+            f"{len(scans)} scans ({bots} bots)."
         ))
-        self.stdout.write(f"Admin user id {admin.pk}. Log in at {settings.SITE_URL}/accounts/login/")
+        self.stdout.write(
+            "Log in as demo / demo (officer of Gopher Coders and Women in Computing), newofficer / newofficer (waiting to join), "
+            "wic / wic (Women in Computing), or admin / admin (staff)."
+        )
 
-    def _user(self, username, password, staff):
+    def _user(self, username, password, staff, first="", last=""):
         user, _ = User.objects.get_or_create(username=username, defaults={"email": f"{username}@example.com"})
         user.is_staff = staff
         user.is_superuser = staff
+        user.first_name, user.last_name = first, last
         user.set_password(password)
         user.save()
         return user
@@ -185,33 +301,31 @@ class Command(BaseCommand):
         local = timezone.localtime(when)
         return local.replace(hour=hour, minute=0, second=0, microsecond=0)
 
-    def _make_scans(self, rng, now, flyer_plans):
-        """Spread TARGET_SCANS across flyers by popularity × days posted, with daily and weekly rhythm."""
-        window_start = now - datetime.timedelta(days=30)
-        exposure = []
-        for flyer, weight in flyer_plans:
-            start = max(flyer.posted_at, window_start)
-            end = flyer.removed_at or now
-            days = max(1.0, (end - start).total_seconds() / 86400)
-            exposure.append(weight * days)
-        total_exposure = sum(exposure)
-
+    def _make_scans(self, rng, now, plans):
+        """Each flyer gets about per_day scans for each weekday it was up (less on weekends), stopping
+        a day after its event; taken-down flyers keep a trickle from photos of the flyer."""
         scans = []
-        for (flyer, _), exp in zip(flyer_plans, exposure):
-            count = round(TARGET_SCANS * exp / total_exposure)
-            start = max(flyer.posted_at, window_start)
-            # Removed flyers keep getting a trickle of scans from photos of the flyer.
-            end = (flyer.removed_at + datetime.timedelta(days=4)) if flyer.removed_at else now
-            end = min(end, now)
+        for flyer, per_day in plans:
+            if per_day <= 0:
+                continue
+            start = flyer.posted_at
+            end = now
+            if flyer.event.end_date:
+                event_over = timezone.make_aware(datetime.datetime.combine(flyer.event.end_date + datetime.timedelta(days=2), datetime.time()))
+                end = min(end, event_over)
+            if flyer.removed_at:
+                end = min(end, flyer.removed_at + datetime.timedelta(days=4))
+            if end <= start:
+                continue
             days = self._weighted_days(start, end)
+            count = round(per_day * sum(w for _, w in days) * rng.uniform(0.85, 1.15))
             visitors_today = {}
             for _ in range(count):
                 if flyer.removed_at and rng.random() > 0.05:
-                    when = self._random_time(rng, days, start, flyer.removed_at)
+                    when = self._random_time(rng, days, start, min(end, flyer.removed_at))
                 else:
                     when = self._random_time(rng, days, start, end)
-                bot = rng.random() < BOT_RATE
-                if bot:
+                if rng.random() < BOT_RATE:
                     ua = rng.choice(BOT_USER_AGENTS)
                     ip = f"66.249.{rng.randint(0, 255)}.{rng.randint(1, 254)}"
                 else:

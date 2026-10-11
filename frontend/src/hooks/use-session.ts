@@ -1,11 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { api } from "@/lib/api"
+import { startErrorReporting } from "@/lib/error-reporting"
 import type { AppConfig, Session, User } from "@/lib/types"
 
 export const sessionQuery = {
   queryKey: ["session"],
-  queryFn: () => api<Session>("session/"),
+  queryFn: async () => {
+    const session = await api<Session>("session/")
+    startErrorReporting(session.config.sentry)
+    return session
+  },
   staleTime: Infinity,
 }
 

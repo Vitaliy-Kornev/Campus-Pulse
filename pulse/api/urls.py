@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import auth, boards, campaigns, flyers
+from . import auth, boards, clubs, events, flyers
 
 urlpatterns = [
     # Session and accounts
@@ -16,14 +16,27 @@ urlpatterns = [
     path("boards/<int:pk>/", boards.board_detail, name="api_board_detail"),
     path("boards/leaderboard/", boards.leaderboard, name="api_board_leaderboard"),
     path("boards.geojson", boards.boards_geojson, name="api_boards_geojson"),
-    # Campaigns
-    path("campaigns/", campaigns.campaign_list, name="api_campaigns"),
-    path("campaigns/<int:pk>/", campaigns.campaign_detail, name="api_campaign_detail"),
-    path("campaigns/<int:pk>/summary", campaigns.campaign_summary, name="api_campaign_summary"),
-    path("campaigns/<int:pk>/flyers", campaigns.campaign_flyers, name="api_campaign_flyers"),
-    path("campaigns/<int:pk>/timeseries", campaigns.campaign_timeseries, name="api_campaign_timeseries"),
-    path("campaigns/<int:pk>/by-board", campaigns.campaign_by_board, name="api_campaign_by_board"),
-    path("campaigns/<int:pk>/export.csv", campaigns.export_csv, name="api_campaign_export"),
+    # Events
+    path("events/", events.event_list, name="api_events"),
+    path("events/<int:pk>/", events.event_detail, name="api_event_detail"),
+    path("events/<int:pk>/summary", events.event_summary, name="api_event_summary"),
+    path("events/<int:pk>/flyers", events.event_flyers, name="api_event_flyers"),
+    path("events/<int:pk>/timeseries", events.event_timeseries, name="api_event_timeseries"),
+    path("events/<int:pk>/by-board", events.event_by_board, name="api_event_by_board"),
+    path("events/<int:pk>/export.csv", events.export_csv, name="api_event_export"),
+    path("events/<int:pk>/recap", events.event_recap, name="api_event_recap"),
+    path("recommendations/boards", events.board_recommendations, name="api_board_recommendations"),
+    # Clubs and notifications
+    path("taxonomy/", clubs.taxonomy_view, name="api_taxonomy"),
+    path("clubs/", clubs.club_list, name="api_clubs"),
+    path("clubs/<int:pk>/join/", clubs.join_club, name="api_club_join"),
+    path("clubs/<int:pk>/open/", clubs.open_club, name="api_club_open"),
+    path("clubs/<int:pk>/leave/", clubs.leave_club, name="api_club_leave"),
+    path("club/", clubs.my_club, name="api_my_club"),
+    path("club/members/<int:pk>/<str:action>/", clubs.member_action, name="api_club_member_action"),
+    path("notifications/", clubs.notification_list, name="api_notifications"),
+    path("notifications/read/", clubs.notifications_read, name="api_notifications_read"),
+    path("notifications/dismiss/", clubs.notifications_dismiss, name="api_notifications_dismiss"),
     # Flyers
     path("flyers/", flyers.flyer_create, name="api_flyers"),
     path("flyers/<str:slug>/", flyers.flyer_detail, name="api_flyer_detail"),

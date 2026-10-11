@@ -8,7 +8,7 @@ import { toast } from "sonner"
 import { boardsQuery } from "@/components/board-select"
 import { FormAlert, SubmitButton } from "@/components/form-alert"
 import { ErrorState } from "@/components/query-state"
-import { Badge } from "@/components/ui/badge"
+import { BoardTag } from "@/components/board-tag"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { FieldGroup } from "@/components/ui/field"
@@ -19,24 +19,30 @@ import { useLeafletMap } from "@/hooks/use-leaflet-map"
 import { useConfig } from "@/hooks/use-session"
 import { patch, post } from "@/lib/api"
 import { applyServerErrors } from "@/lib/forms"
-import { COLORS, escapeHtml, L } from "@/lib/map"
+import { tagHtml, type TagState } from "@/lib/board-tag"
+import { escapeHtml, L, tagIcon } from "@/lib/map"
 import type { Board } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { BOARD_FIELDS, BoardFields, boardBody, boardSchema, emptyBoard, toCoordinate, type BoardValues } from "@/pages/boards/board-fields"
 
+const boardState = (b: Board): TagState => (b.is_active ? "idle" : "retired")
+
 function popupHtml(b: Board) {
   const e = escapeHtml
-  const sm = (variant: "default" | "outline" | "destructive") => buttonVariants({ size: "sm", variant })
-  return `<div class="flex flex-col gap-2">
-    <div>
-      <div class="text-sm font-semibold">${e(b.name)}</div>
-      <div class="text-muted-foreground">${e(b.building)}${b.floor ? ` · Floor ${e(b.floor)}` : ""} · ${e(b.area)}</div>
-      ${b.is_active ? "" : '<div class="mt-1 text-xs font-medium text-muted-foreground">Retired</div>'}
+  const sm = (variant: "default" | "outline" | "ghost") => buttonVariants({ size: "sm", variant })
+  return `<div class="flex flex-col gap-3">
+    <div class="flex items-start gap-2.5">
+      ${tagHtml(b.tag, null, boardState(b))}
+      <div class="min-w-0">
+        <div class="text-sm leading-snug font-bold">${e(b.name)}</div>
+        <div class="text-xs text-muted-foreground">${e(b.building)}${b.floor ? ` · Floor ${e(b.floor)}` : ""} · ${e(b.area)}</div>
+        ${b.is_active ? "" : '<div class="mt-1 text-xs font-semibold text-muted-foreground">Retired: hidden from student orgs</div>'}
+      </div>
     </div>
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap items-center gap-2 border-t pt-2.5">
+      ${b.is_active ? `<a class="${sm("default")} text-primary-foreground" href="/flyers/new?board=${b.id}" data-nav="/flyers/new?board=${b.id}">Post a flyer here</a>` : ""}
       <a class="${sm("outline")}" href="/boards/${b.id}/edit" data-nav="/boards/${b.id}/edit">Edit</a>
-      ${b.is_active ? `<a class="${sm("default")}" href="/flyers/new?board=${b.id}" data-nav="/flyers/new?board=${b.id}">Add flyer here</a>` : ""}
-      <button type="button" class="${sm(b.is_active ? "destructive" : "outline")}" data-toggle-board="${b.id}">${b.is_active ? "Retire" : "Reactivate"}</button>
+      <button type="button" class="${sm("ghost")} ml-auto text-muted-foreground" data-toggle-board="${b.id}">${b.is_active ? "Retire" : "Reactivate"}</button>
     </div>
   </div>`
 }
@@ -48,7 +54,7 @@ export function ManageBoardsPage() {
   const boards = useQuery(boardsQuery)
   const { ref, map } = useLeafletMap()
   const markers = useRef(new Map<number, L.Marker>())
-  const draft = useRef<L.CircleMarker | null>(null)
+  const draft = useRef<L.Marker | null>(null)
   const [search, setSearch] = useState("")
   const [creating, setCreating] = useState(false)
   const form = useForm<BoardValues>({ resolver: zodResolver(boardSchema), defaultValues: emptyBoard })
@@ -65,8 +71,15 @@ export function ManageBoardsPage() {
     const group = L.layerGroup().addTo(map)
     markers.current.clear()
     for (const b of boards.data) {
-      const marker = L.marker([b.latitude, b.longitude], { draggable: true, title: b.name, opacity: b.is_active ? 1 : 0.45 })
-      marker.bindPopup(() => popupHtml(b))
+      const marker = L.marker([b.latitude, b.longitude], {
+        icon: tagIcon(b.tag, null, boardState(b)),
+        draggable: true,
+        title: `${b.name}${b.is_active ? "" : " (retired)"}`,
+        alt: b.name,
+        riseOnHover: true,
+        zIndexOffset: b.is_active ? 100 : 0,
+      })
+      marker.bindPopup(() => popupHtml(b), { maxWidth: 320, offset: [0, -30] })
       marker.on("dragend", async () => {
         const pos = marker.getLatLng()
         try {
@@ -128,7 +141,7 @@ export function ManageBoardsPage() {
     if (!map) return
     const onClick = (event: L.LeafletMouseEvent) => {
       if (draft.current) draft.current.setLatLng(event.latlng)
-      else draft.current = L.circleMarker(event.latlng, { radius: 9, color: COLORS.draft, weight: 3, fillOpacity: 0.3 }).addTo(map)
+      else draft.current = L.marker(event.latlng, { icon: tagIcon("NEW", null, "top"), zIndexOffset: 1000, keyboard: false }).addTo(map)
       form.setValue("latitude", toCoordinate(event.latlng.lat))
       form.setValue("longitude", toCoordinate(event.latlng.lng))
       setCreating(true)
@@ -191,11 +204,11 @@ export function ManageBoardsPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <div className="relative isolate min-h-[55%] flex-1">
-        <div ref={ref} className="absolute inset-0" role="region" aria-label="Board locations. Click an empty spot to add a board." />
-        <Card size="sm" className="absolute top-3 left-3 z-[1000] max-w-64 px-3 py-2 text-xs text-muted-foreground shadow-md">
+        <div ref={ref} className="absolute inset-0" role="region" aria-label="Board locations. Click or tap an empty spot to add a board." />
+        <Card size="sm" className="absolute top-3 left-3 z-[1000] max-w-72 px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground shadow-md">
           <p>
-            <b className="text-foreground">Click</b> an empty spot to add a board. <b className="text-foreground">Drag</b> a pin to move it.{" "}
-            <b className="text-foreground">Click</b> a pin to edit or retire it.
+            <b className="text-foreground">Click or tap</b> an empty spot to add a board. <b className="text-foreground">Drag</b> a tag to move it; it saves when you
+            let go. <b className="text-foreground">Select</b> a tag to edit or retire it.
           </p>
         </Card>
       </div>
@@ -203,7 +216,10 @@ export function ManageBoardsPage() {
         {creating ? (
           <ScrollArea className="min-h-0 flex-1">
             <div className="p-5">
-              <h2 className="mb-4 font-semibold">New board</h2>
+              <h2 className="mb-4 flex items-center gap-2.5 text-base font-bold">
+                <BoardTag code="NEW" state="top" />
+                New board
+              </h2>
               <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
                 <FieldGroup>
                   <FormAlert message={formError} />
@@ -224,7 +240,7 @@ export function ManageBoardsPage() {
           <>
             <div className="flex flex-col gap-3 p-5 pb-3">
               <div className="flex items-center justify-between">
-                <h2 className="font-semibold">Boards</h2>
+                <h2 className="text-base font-bold">Boards</h2>
                 {boards.data && <span className="text-xs text-muted-foreground">{boards.data.length} total</span>}
               </div>
               <InputGroup>
@@ -250,13 +266,16 @@ export function ManageBoardsPage() {
                       <button
                         type="button"
                         onClick={() => focusBoard(b.id)}
-                        className={cn("flex w-full flex-col rounded-md px-2 py-2 text-left transition-colors hover:bg-muted", !b.is_active && "text-muted-foreground")}
+                        className={cn("flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted", !b.is_active && "text-muted-foreground")}
                       >
-                        <span className="flex items-center gap-2 font-medium">
-                          {b.name}
-                          {!b.is_active && <Badge variant="secondary">Retired</Badge>}
+                        <BoardTag code={b.tag} state={boardState(b)} />
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate font-semibold">{b.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {b.area}
+                            {!b.is_active && " · retired"}
+                          </span>
                         </span>
-                        <span className="text-xs text-muted-foreground">{b.area}</span>
                       </button>
                     </li>
                   ))}
