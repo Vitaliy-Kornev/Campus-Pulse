@@ -39,12 +39,12 @@ export function SignupPage() {
       return
     }
     await queryClient.invalidateQueries({ queryKey: ["session"] })
-    navigate("/campaigns/new", { replace: true })
+    navigate("/events/new", { replace: true })
   }
 
   return (
     <AuthLayout
-      title="Create an advertiser account"
+      title="Create an account for your student org"
       description="Track scans of your campus flyers, board by board."
       footer={
         <>

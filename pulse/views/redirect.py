@@ -12,7 +12,7 @@ def scan_redirect(request, slug):
 
     No login, no session access, no CSRF. Removed flyers still redirect and still log.
     """
-    flyer = Flyer.objects.select_related("campaign").filter(slug=slug).first()
+    flyer = Flyer.objects.select_related("event").filter(slug=slug).first()
     if flyer is None:
         return render(request, "pulse/scan_not_found.html", status=404)
 

@@ -17,7 +17,8 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from pulse.models import Board, Campaign, Flyer, Scan, days_between
+from pulse.models import Board, Event, Flyer, Membership, Scan, days_between
+from pulse.services.tags import tag_map
 
 RANGE_CHOICES = (
     ("7d", "Last 7 days"),
@@ -30,23 +31,54 @@ RANGE_CHOICES = (
 # --- Ownership scoping -------------------------------------------------------
 
 
-def visible_campaigns(user):
-    qs = Campaign.objects.all()
-    return qs if user.is_staff else qs.filter(owner=user)
+def current_membership(user):
+    """The active membership this user is working in: the club they opened most recently.
+
+    None when they have no club yet, or only requests still pending. One query, cached on the
+    user object for the rest of the request.
+    """
+    if not user.is_authenticated:
+        return None
+    if not hasattr(user, "_current_membership"):
+        user._current_membership = (
+            Membership.objects.select_related("club")
+            .filter(user=user, status=Membership.ACTIVE)
+            .order_by(F("last_opened_at").desc(nulls_last=True), "created_at")
+            .first()
+        )
+    return user._current_membership
+
+
+def active_club(user):
+    """The club every screen is about right now, or None. Data from the user's other clubs never mixes in."""
+    membership = current_membership(user)
+    return membership.club if membership else None
+
+
+def visible_events(user):
+    """Admins see every event; officers see their club's; anyone else, none."""
+    qs = Event.objects.all()
+    if user.is_staff:
+        return qs
+    club = active_club(user)
+    return qs.filter(club=club) if club else qs.none()
 
 
 def visible_flyers(user):
     qs = Flyer.objects.all()
-    return qs if user.is_staff else qs.filter(campaign__owner=user)
+    if user.is_staff:
+        return qs
+    club = active_club(user)
+    return qs.filter(event__club=club) if club else qs.none()
 
 
-def get_campaign_for(user, pk):
-    """Another user's campaign is a 404, never a 403."""
-    return get_object_or_404(visible_campaigns(user).select_related("owner"), pk=pk)
+def get_event_for(user, pk):
+    """Another club's event is a 404, never a 403."""
+    return get_object_or_404(visible_events(user).select_related("club"), pk=pk)
 
 
 def get_flyer_for(user, slug):
-    return get_object_or_404(visible_flyers(user).select_related("campaign", "board"), slug=slug)
+    return get_object_or_404(visible_flyers(user).select_related("event", "board"), slug=slug)
 
 
 # --- Date ranges -------------------------------------------------------------
@@ -107,8 +139,8 @@ def human_scans():
     return Scan.objects.filter(is_bot=False)
 
 
-def campaign_scans(campaign, rng):
-    return human_scans().filter(flyer__campaign=campaign).filter(rng.scan_q())
+def event_scans(event, rng):
+    return human_scans().filter(flyer__event=event).filter(rng.scan_q())
 
 
 def totals(scans):
@@ -181,7 +213,7 @@ def flyer_counts(flyer):
 def flyer_table(flyers):
     """Annotate flyers with lifetime totals for tables. Bots excluded."""
     human = Q(scans__is_bot=False)
-    return flyers.select_related("board", "campaign").annotate(
+    return flyers.select_related("board", "event").annotate(
         total_scans=Count("scans", filter=human),
         unique_scans=Count("scans__visitor_hash", filter=human, distinct=True),
         after_removal_scans=Count("scans", filter=human & Q(scans__scanned_at__gt=F("removed_at"))),
@@ -191,17 +223,17 @@ def flyer_table(flyers):
 # --- Map ---------------------------------------------------------------------
 
 
-def boards_geojson(user, rng, campaign=None):
+def boards_geojson(user, rng, event=None):
     """FeatureCollection of boards (active, plus retired for admins) with scan counts scoped to the user."""
-    campaigns = visible_campaigns(user)
-    if campaign is not None:
-        campaigns = campaigns.filter(pk=campaign.pk)
+    events = visible_events(user)
+    if event is not None:
+        events = events.filter(pk=event.pk)
 
     scans = human_scans().filter(rng.scan_q())
     flyers = Flyer.objects.active()
-    if campaign is not None or not user.is_staff:
-        scans = scans.filter(flyer__campaign__in=campaigns)
-        flyers = flyers.filter(campaign__in=campaigns)
+    if event is not None or not user.is_staff:
+        scans = scans.filter(flyer__event__in=events)
+        flyers = flyers.filter(event__in=events)
 
     board_counts = {
         row["flyer__board_id"]: row
@@ -212,7 +244,7 @@ def boards_geojson(user, rng, campaign=None):
 
     flyers_by_board = defaultdict(list)
     flyer_rows = (
-        flyers.select_related("campaign")
+        flyers.select_related("event")
         .annotate(scan_count=Count("scans", filter=Q(scans__is_bot=False) & rng.scan_q("scans__")))
         .order_by("-scan_count", "posted_at")
     )
@@ -220,12 +252,13 @@ def boards_geojson(user, rng, campaign=None):
         flyers_by_board[flyer.board_id].append({
             "id": flyer.id,
             "slug": flyer.slug,
-            "campaign": flyer.campaign.name,
-            "campaign_id": flyer.campaign_id,
+            "event": flyer.event.name,
+            "event_id": flyer.event_id,
             "label": flyer.label,
             "scans": flyer.scan_count,
         })
 
+    tags = tag_map()
     features = []
     # Retired boards are shown (muted) to admins only.
     boards = Board.objects.all() if user.is_staff else Board.objects.filter(is_active=True)
@@ -237,6 +270,7 @@ def boards_geojson(user, rng, campaign=None):
             "geometry": {"type": "Point", "coordinates": [float(board.longitude), float(board.latitude)]},
             "properties": {
                 "id": board.id,
+                "tag": tags.get(board.id, ""),
                 "name": board.name,
                 "area": board.area,
                 "building": board.building,
@@ -253,23 +287,23 @@ def boards_geojson(user, rng, campaign=None):
     return {"type": "FeatureCollection", "features": features}
 
 
-# --- Campaign dashboard ----------------------------------------------------------
+# --- Event dashboard ----------------------------------------------------------
 
 
-def campaigns_with_stats(user):
-    return visible_campaigns(user).select_related("owner").annotate(
+def events_with_stats(user):
+    return visible_events(user).select_related("club").annotate(
         flyer_count=Count("flyers", distinct=True),
         active_flyer_count=Count("flyers", filter=Q(flyers__removed_at__isnull=True), distinct=True),
         total_scans=Count("flyers__scans", filter=Q(flyers__scans__is_bot=False)),
     )
 
 
-def campaign_summary(campaign, rng):
-    scans = campaign_scans(campaign, rng)
+def event_summary(event, rng):
+    scans = event_scans(event, rng)
     boards = by_board(scans)
     return {
         **totals(scans),
-        "active_flyers": campaign.flyers.active().count(),
+        "active_flyers": event.flyers.active().count(),
         "best_board": boards[0] if boards else None,
     }
 
@@ -280,16 +314,17 @@ def campaign_summary(campaign, rng):
 def board_leaderboard(user):
     """Boards with lifetime human scans, flyers hosted, and avg scans per flyer per day.
 
-    Admins see every campaign's numbers and retired boards. Advertisers see active boards
-    with numbers from their own campaigns only, so a new account starts at zero.
+    Admins see every event's numbers and retired boards. Officers see active boards with
+    numbers from their own club's events only, so a new club starts at zero.
     """
     if user.is_staff:
         boards_qs, own = Board.objects.all(), Q()
         flyers = Flyer.objects.all()
     else:
         boards_qs = Board.objects.filter(is_active=True)
-        own = Q(flyers__campaign__owner=user)
-        flyers = Flyer.objects.filter(campaign__owner=user)
+        club = active_club(user)
+        own = Q(flyers__event__club=club)
+        flyers = Flyer.objects.filter(event__club=club)
     boards = list(
         boards_qs.annotate(
             lifetime_scans=Count("flyers__scans", filter=Q(flyers__scans__is_bot=False) & own),
@@ -306,11 +341,11 @@ def board_leaderboard(user):
     return boards
 
 
-def require_visible_campaign(user, campaign_id):
-    """Resolve an optional ?campaign= filter; invalid or foreign IDs are a 404."""
-    if not campaign_id:
+def require_visible_event(user, event_id):
+    """Resolve an optional ?event= filter; invalid or foreign IDs are a 404."""
+    if not event_id:
         return None
     try:
-        return get_campaign_for(user, int(campaign_id))
+        return get_event_for(user, int(event_id))
     except (TypeError, ValueError):
-        raise Http404("Unknown campaign")
+        raise Http404("Unknown event")

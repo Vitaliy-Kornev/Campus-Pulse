@@ -4,8 +4,12 @@ import { Navigate, useLocation } from "react-router"
 import { ErrorState, FullPageSpinner } from "@/components/query-state"
 import { useSession } from "@/hooks/use-session"
 
-/** Logged-in users only; everyone else goes to /login and comes back afterwards. */
-export function RequireAuth({ staff = false, children }: { staff?: boolean; children: ReactNode }) {
+/**
+ * Logged-in users only; everyone else goes to /login and comes back afterwards. Officers also
+ * need an active club: anyone without one (or still waiting for approval) goes to /club/setup.
+ * Admins don't need a club. Pass `club={false}` for pages that don't need one (the setup page).
+ */
+export function RequireAuth({ staff = false, club = true, children }: { staff?: boolean; club?: boolean; children: ReactNode }) {
   const session = useSession()
   const location = useLocation()
   if (session.isPending) return <FullPageSpinner />
@@ -14,7 +18,11 @@ export function RequireAuth({ staff = false, children }: { staff?: boolean; chil
     const next = location.pathname + location.search
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
   }
-  if (staff && !session.data.user.is_staff) {
+  const user = session.data.user
+  if (club && !user.is_staff && !user.club) {
+    return <Navigate to="/club/setup" replace />
+  }
+  if (staff && !user.is_staff) {
     return <ErrorState title="Admins only" description="This page is for Campus Pulse admins." className="m-6" />
   }
   return children

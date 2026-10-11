@@ -7,29 +7,29 @@ from .helpers import Factory
 
 
 class OwnershipScopingTests(TestCase):
-    """Advertisers only ever see their own campaigns. Other users' objects are 404, not 403."""
+    """Advertisers only ever see their own events. Other users' objects are 404, not 403."""
 
     def setUp(self):
         self.alice = Factory.user("alice")
         self.bob = Factory.user("bob")
-        self.bob_campaign = Factory.campaign(self.bob, name="Bob's Secret Campaign")
-        self.bob_flyer = Factory.flyer(self.bob_campaign)
+        self.bob_event = Factory.event(self.bob, name="Bob's Secret Event")
+        self.bob_flyer = Factory.flyer(self.bob_event)
         Factory.scan(self.bob_flyer)
-        self.alice_campaign = Factory.campaign(self.alice, name="Alice Campaign")
+        self.alice_event = Factory.event(self.alice, name="Alice Event")
         self.client.force_login(self.alice)
 
-    def test_cannot_see_other_campaigns(self):
-        pk = self.bob_campaign.pk
+    def test_cannot_see_other_events(self):
+        pk = self.bob_event.pk
         for name in (
-            "api_campaign_detail", "api_campaign_summary", "api_campaign_flyers",
-            "api_campaign_timeseries", "api_campaign_by_board", "api_campaign_export",
+            "api_event_detail", "api_event_summary", "api_event_flyers",
+            "api_event_timeseries", "api_event_by_board", "api_event_export",
         ):
             with self.subTest(name=name):
                 self.assertEqual(self.client.get(reverse(name, args=[pk])).status_code, 404)
-        response = self.client.patch(reverse("api_campaign_detail", args=[pk]), {"name": "Mine now"}, content_type="application/json")
+        response = self.client.patch(reverse("api_event_detail", args=[pk]), {"name": "Mine now"}, content_type="application/json")
         self.assertEqual(response.status_code, 404)
-        self.bob_campaign.refresh_from_db()
-        self.assertEqual(self.bob_campaign.name, "Bob's Secret Campaign")
+        self.bob_event.refresh_from_db()
+        self.assertEqual(self.bob_event.name, "Bob's Secret Event")
 
     def test_cannot_see_other_flyers(self):
         slug = self.bob_flyer.slug
@@ -37,8 +37,8 @@ class OwnershipScopingTests(TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self.client.get(reverse(name, args=[slug])).status_code, 404)
 
-    def test_geojson_campaign_filter_is_scoped(self):
-        url = reverse("api_boards_geojson") + f"?campaign={self.bob_campaign.pk}"
+    def test_geojson_event_filter_is_scoped(self):
+        url = reverse("api_boards_geojson") + f"?event={self.bob_event.pk}"
         self.assertEqual(self.client.get(url).status_code, 404)
 
     def test_geojson_excludes_other_advertisers_flyers_and_scans(self):
@@ -48,11 +48,11 @@ class OwnershipScopingTests(TestCase):
         self.assertEqual(board["properties"]["flyers"], [])
         self.assertNotContains(response, "Secret")
 
-    def test_campaign_list_only_shows_own(self):
-        names = [c["name"] for c in self.client.get(reverse("api_campaigns")).json()]
-        self.assertEqual(names, ["Alice Campaign"])
+    def test_event_list_only_shows_own(self):
+        names = [c["name"] for c in self.client.get(reverse("api_events")).json()]
+        self.assertEqual(names, ["Alice Event"])
 
-    def test_leaderboard_only_counts_own_campaigns(self):
+    def test_leaderboard_only_counts_own_events(self):
         def board_row():
             rows = self.client.get(reverse("api_board_leaderboard")).json()
             return next(b for b in rows if b["id"] == self.bob_flyer.board_id)
@@ -61,7 +61,7 @@ class OwnershipScopingTests(TestCase):
         self.assertEqual((row["lifetime_scans"], row["flyer_count"], row["avg_scans_per_flyer_day"]), (0, 0, 0))
 
         # Alice's own flyer on the same board counts once a student scans it.
-        alice_flyer = Factory.flyer(self.alice_campaign, self.bob_flyer.board)
+        alice_flyer = Factory.flyer(self.alice_event, self.bob_flyer.board)
         Factory.scan(alice_flyer, visitor="x")
         Factory.scan(alice_flyer, visitor="bot", bot=True)
         row = board_row()
@@ -73,14 +73,14 @@ class OwnershipScopingTests(TestCase):
 
     def test_staff_sees_everything(self):
         self.client.force_login(Factory.user("boss", staff=True))
-        self.assertEqual(self.client.get(reverse("api_campaign_detail", args=[self.bob_campaign.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse("api_event_detail", args=[self.bob_event.pk])).status_code, 200)
         self.assertEqual(self.client.get(reverse("api_flyer_detail", args=[self.bob_flyer.slug])).status_code, 200)
-        names = {c["name"] for c in self.client.get(reverse("api_campaigns")).json()}
-        self.assertEqual(names, {"Alice Campaign", "Bob's Secret Campaign"})
+        names = {c["name"] for c in self.client.get(reverse("api_events")).json()}
+        self.assertEqual(names, {"Alice Event", "Bob's Secret Event"})
 
     def test_anonymous_users_get_401(self):
         self.client.logout()
-        for url in (reverse("api_boards_geojson"), reverse("api_campaigns"), reverse("api_flyer_detail", args=[self.bob_flyer.slug])):
+        for url in (reverse("api_boards_geojson"), reverse("api_events"), reverse("api_flyer_detail", args=[self.bob_flyer.slug])):
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 401)
         self.assertIsNone(self.client.get(reverse("api_session")).json()["user"])
@@ -89,7 +89,7 @@ class OwnershipScopingTests(TestCase):
 class StaffOnlyTests(TestCase):
     def setUp(self):
         self.advertiser = Factory.user("adv")
-        self.campaign = Factory.campaign(self.advertiser)
+        self.event = Factory.event(self.advertiser)
         self.board = Factory.board("Existing")
         self.client.force_login(self.advertiser)
 
@@ -135,29 +135,29 @@ class StaffOnlyTests(TestCase):
         self.assertContains(self.client.get(reverse("api_boards")), "Retired Kiosk")
 
     def test_advertiser_can_post_and_manage_own_flyers(self):
-        payload = {"board": self.board.pk, "campaign": self.campaign.pk, "posted_at": "2026-01-01T10:00"}
+        payload = {"board": self.board.pk, "event": self.event.pk, "posted_at": "2026-01-01T10:00"}
         response = self.post("api_flyers", payload)
         self.assertEqual(response.status_code, 201)
         flyer = Flyer.objects.get()
         self.assertEqual(response.json(), {"slug": flyer.slug})
-        self.assertEqual(flyer.campaign, self.campaign)
+        self.assertEqual(flyer.event, self.event)
 
         self.post("api_flyer_remove", args=[flyer.slug])
         flyer.refresh_from_db()
         self.assertIsNotNone(flyer.removed_at)
         other_board = Factory.board("Other spot")
         self.assertEqual(self.post("api_flyer_repost", {"board": other_board.pk}, args=[flyer.slug]).status_code, 201)
-        self.assertTrue(Flyer.objects.filter(campaign=self.campaign, board=other_board).exists())
+        self.assertTrue(Flyer.objects.filter(event=self.event, board=other_board).exists())
 
     def test_advertiser_cannot_post_or_manage_others_flyers(self):
-        other_campaign = Factory.campaign(Factory.user("rival"))
-        payload = {"board": self.board.pk, "campaign": other_campaign.pk, "posted_at": "2026-01-01T10:00"}
+        other_event = Factory.event(Factory.user("rival"))
+        payload = {"board": self.board.pk, "event": other_event.pk, "posted_at": "2026-01-01T10:00"}
         response = self.post("api_flyers", payload)
-        self.assertEqual(response.status_code, 400)  # not one of your campaigns
-        self.assertIn("campaign", response.json())
-        self.assertFalse(Flyer.objects.filter(campaign=other_campaign).exists())
+        self.assertEqual(response.status_code, 400)  # not one of your events
+        self.assertIn("event", response.json())
+        self.assertFalse(Flyer.objects.filter(event=other_event).exists())
 
-        rival_flyer = Factory.flyer(other_campaign, self.board)
+        rival_flyer = Factory.flyer(other_event, self.board)
         self.assertEqual(self.post("api_flyer_remove", args=[rival_flyer.slug]).status_code, 404)
         self.assertEqual(self.post("api_flyer_repost", {"board": self.board.pk}, args=[rival_flyer.slug]).status_code, 404)
         rival_flyer.refresh_from_db()
@@ -165,7 +165,7 @@ class StaffOnlyTests(TestCase):
 
     def test_cannot_post_flyer_on_retired_board(self):
         retired = Factory.board("Gone", is_active=False)
-        response = self.post("api_flyers", {"board": retired.pk, "campaign": self.campaign.pk})
+        response = self.post("api_flyers", {"board": retired.pk, "event": self.event.pk})
         self.assertEqual(response.status_code, 400)
         self.assertIn("board", response.json())
 
@@ -174,7 +174,7 @@ class StaffOnlyTests(TestCase):
         payload = {"name": "New Spot", "area": "East Bank", "building": "Hall", "latitude": "44.975", "longitude": "-93.235", "is_active": True}
         self.assertEqual(self.post("api_boards", payload).status_code, 201)
         board = Board.objects.get(name="New Spot")
-        response = self.post("api_flyers", {"board": board.pk, "campaign": self.campaign.pk, "posted_at": "2026-01-01T10:00"})
+        response = self.post("api_flyers", {"board": board.pk, "event": self.event.pk, "posted_at": "2026-01-01T10:00"})
         self.assertEqual(response.status_code, 201)
         flyer = Flyer.objects.get(board=board)
         self.assertEqual(len(flyer.slug), 8)
@@ -202,21 +202,24 @@ class StaffOnlyTests(TestCase):
 class ValidationTests(TestCase):
     def test_destination_must_be_http_or_https(self):
         user = Factory.user()
+        club = Factory.club_of(user)
         self.client.force_login(user)
-        url = reverse("api_campaigns")
+        url = reverse("api_events")
         for destination in ("javascript:alert(1)", "ftp://example.com/file"):
             response = self.client.post(url, {"name": "X", "destination_url": destination}, content_type="application/json")
             self.assertEqual(response.status_code, 400)
             self.assertIn("destination_url", response.json())
-        self.assertFalse(user.campaigns.exists())
+        self.assertFalse(club.events.exists())
         response = self.client.post(url, {"name": "X", "destination_url": "https://example.com"}, content_type="application/json")
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["owner"], user.username)
+        self.assertEqual(response.json()["club"], club.name)
 
     def test_end_date_after_start(self):
-        self.client.force_login(Factory.user())
+        user = Factory.user()
+        Factory.club_of(user)
+        self.client.force_login(user)
         response = self.client.post(
-            reverse("api_campaigns"),
+            reverse("api_events"),
             {"name": "X", "destination_url": "https://example.com", "start_date": "2026-05-02", "end_date": "2026-05-01"},
             content_type="application/json",
         )

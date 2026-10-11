@@ -46,7 +46,7 @@ export function LoginPage() {
       description="See where on campus your flyers are actually seen."
       footer={
         <>
-          New advertiser?{" "}
+          New student org?{" "}
           <Link className="font-medium text-primary underline-offset-4 hover:underline" to="/signup">
             Create an account
           </Link>

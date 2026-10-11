@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from pulse.models import Board, Campaign, Campus, Flyer, Scan
+from pulse.models import Board, Campus, Club, Event, Flyer, Membership, Scan
 
 IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1"
 
@@ -37,12 +37,29 @@ class Factory:
         return Board.objects.create(campus=cls.campus(), name=name or f"Board {cls._next()}", area=area, **defaults)
 
     @classmethod
-    def campaign(cls, owner, name=None, url="https://example.com/landing"):
-        return Campaign.objects.create(owner=owner, name=name or f"Campaign {cls._next()}", destination_url=url)
+    def club(cls, name=None, officers=(), club_type="academic", fields=("computer-science",)):
+        club = Club.objects.create(name=name or f"Club {cls._next()}", club_type=club_type, fields=list(fields))
+        for user in officers:
+            Membership.objects.create(club=club, user=user, status=Membership.ACTIVE)
+        return club
 
     @classmethod
-    def flyer(cls, campaign, board=None, **kwargs):
-        return Flyer.objects.create(campaign=campaign, board=board or cls.board(), **kwargs)
+    def club_of(cls, user):
+        """The user's club, creating one with them as its only officer if they have none."""
+        membership = user.memberships.filter(status=Membership.ACTIVE).first()
+        if membership is None:
+            return cls.club(f"{user.username}'s club", officers=[user])
+        return membership.club
+
+    @classmethod
+    def event(cls, owner, name=None, url="https://example.com/landing", **kwargs):
+        """An event of `owner`'s club (owner may be a user or a club)."""
+        club = owner if isinstance(owner, Club) else cls.club_of(owner)
+        return Event.objects.create(club=club, name=name or f"Event {cls._next()}", destination_url=url, **kwargs)
+
+    @classmethod
+    def flyer(cls, event, board=None, **kwargs):
+        return Flyer.objects.create(event=event, board=board or cls.board(), **kwargs)
 
     @classmethod
     def scan(cls, flyer, when=None, visitor="v1", bot=False, device="mobile"):

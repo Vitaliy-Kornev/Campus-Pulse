@@ -14,7 +14,9 @@ import {
   type SortingState,
 } from "@tanstack/react-table"
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react"
+import type { ReactNode } from "react"
 
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
@@ -43,14 +45,34 @@ type DataTableProps<T extends RowData> = {
   initialSorting?: SortingState
   rowClassName?: (row: T) => string | undefined
   empty?: string
+  /**
+   * How one row reads on a phone. When given, narrow screens get a stacked list (with a sort
+   * control) instead of a table whose number columns would scroll out of view.
+   */
+  mobileRow?: (row: T) => ReactNode
+  /** Accessible name for the table and list. */
+  label?: string
 }
 
 /** A table with click-to-sort headers. Numeric columns are right-aligned with tabular figures. */
-export function DataTable<T extends RowData>({ columns, data, initialSorting = [], rowClassName, empty = "Nothing here yet." }: DataTableProps<T>) {
+export function DataTable<T extends RowData>({
+  columns,
+  data,
+  initialSorting = [],
+  rowClassName,
+  empty = "Nothing here yet.",
+  mobileRow,
+  label,
+}: DataTableProps<T>) {
   const table = useTable({ features, columns, data, initialState: { sorting: initialSorting } })
+  const rows = table.getRowModel().rows
 
-  return (
-    <Table>
+  const sortable = table.getAllLeafColumns().filter((c) => c.getCanSort() && typeof c.columnDef.header === "string")
+  const current = table.state.sorting[0]
+  const sortValue = current ? `${current.id}:${current.desc ? "desc" : "asc"}` : "none"
+
+  const desktop = (
+    <Table aria-label={label}>
       <TableHeader>
         {table.getHeaderGroups().map((group) => (
           <TableRow key={group.id} className="hover:bg-transparent">
@@ -68,10 +90,7 @@ export function DataTable<T extends RowData>({ columns, data, initialSorting = [
                     <button
                       type="button"
                       onClick={header.column.getToggleSortingHandler()}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-sm font-semibold transition-colors hover:text-foreground",
-                        meta?.numeric && "flex-row-reverse",
-                      )}
+                      className="inline-flex items-center gap-1 rounded-sm font-semibold transition-colors hover:text-foreground"
                     >
                       <table.FlexRender header={header} />
                       <SortIcon className={cn("size-3.5", sorted ? "text-primary" : "text-muted-foreground/60")} aria-hidden />
@@ -86,13 +105,13 @@ export function DataTable<T extends RowData>({ columns, data, initialSorting = [
         ))}
       </TableHeader>
       <TableBody>
-        {table.getRowModel().rows.length ? (
-          table.getRowModel().rows.map((row) => (
+        {rows.length ? (
+          rows.map((row) => (
             <TableRow key={row.id} className={rowClassName?.(row.original)}>
               {row.getAllCells().map((cell) => {
                 const meta = cell.column.columnDef.meta
                 return (
-                  <TableCell key={cell.id} className={cn(meta?.numeric && "text-right font-mono tabular-nums", meta?.className)}>
+                  <TableCell key={cell.id} className={cn(meta?.numeric && "text-right tabular-nums", meta?.className)}>
                     <table.FlexRender cell={cell} />
                   </TableCell>
                 )
@@ -108,5 +127,62 @@ export function DataTable<T extends RowData>({ columns, data, initialSorting = [
         )}
       </TableBody>
     </Table>
+  )
+
+  if (!mobileRow) return desktop
+
+  return (
+    <>
+      <div className="md:hidden">
+        {sortable.length > 0 && rows.length > 1 && (
+          <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
+            <span className="text-sm text-muted-foreground" id="mobile-sort-label">
+              Sort by
+            </span>
+            <Select
+              value={sortValue}
+              onValueChange={(value) => {
+                if (value === "none") return table.setSorting([])
+                const [id, dir] = value.split(":")
+                table.setSorting([{ id, desc: dir === "desc" }])
+              }}
+            >
+              <SelectTrigger size="sm" className="min-w-44" aria-labelledby="mobile-sort-label">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectGroup>
+                  <SelectItem value="none">Default order</SelectItem>
+                  {sortable.map((c) => {
+                    const meta = c.columnDef.meta
+                    const name = c.columnDef.header as string
+                    return [
+                      <SelectItem key={`${c.id}:desc`} value={`${c.id}:desc`}>
+                        {name}, {meta?.numeric ? "highest first" : "Z to A"}
+                      </SelectItem>,
+                      <SelectItem key={`${c.id}:asc`} value={`${c.id}:asc`}>
+                        {name}, {meta?.numeric ? "lowest first" : "A to Z"}
+                      </SelectItem>,
+                    ]
+                  })}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {rows.length ? (
+          <ul className="divide-y" aria-label={label}>
+            {rows.map((row) => (
+              <li key={row.id} className={cn("px-4 py-3", rowClassName?.(row.original))}>
+                {mobileRow(row.original)}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">{empty}</p>
+        )}
+      </div>
+      <div className="hidden md:block">{desktop}</div>
+    </>
   )
 }

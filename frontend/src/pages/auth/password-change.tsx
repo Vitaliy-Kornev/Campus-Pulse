@@ -41,7 +41,7 @@ export function PasswordChangePage() {
 
   return (
     <div className="max-w-xl">
-      <PageHeader title="Change password" back={{ to: "/campaigns", label: "Campaigns" }} />
+      <PageHeader title="Change password" back={{ to: "/events", label: "Events" }} />
       <Card>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} noValidate>

@@ -14,9 +14,12 @@ declare module "leaflet" {
 
   function heatLayer(latlngs: HeatLatLng[], options?: HeatLayerOptions): Layer
 
-  interface CircleMarkerOptions {
-    /** Scan count, read back when sizing and coloring marker clusters. */
+  interface MarkerOptions {
+    /** Read back when labelling a cluster with its busiest board's tag. */
     scans?: number
+    tag?: string
+    tagCountText?: string | null
+    tagState?: import("@/lib/board-tag").TagState
   }
 }
 

@@ -3,7 +3,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "rec
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDay, formatHour } from "@/lib/format"
-import type { BoardScans, DayPoint, HourPoint } from "@/lib/types"
+import type { DayPoint, HourPoint } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const dailyConfig = {
@@ -30,22 +30,6 @@ export function DailyScansChart({ data, className }: { data: DayPoint[]; classNa
         <Area dataKey="unique" type="monotone" stroke="var(--color-unique)" fill="transparent" strokeWidth={2} />
         <ChartLegend content={<ChartLegendContent />} />
       </AreaChart>
-    </ChartContainer>
-  )
-}
-
-/** Horizontal bars, one per board, most scans first. */
-export function BoardScansChart({ data }: { data: BoardScans[] }) {
-  const height = Math.max(160, data.length * 28 + 24)
-  return (
-    <ChartContainer config={scansConfig} className="aspect-auto w-full" style={{ height }}>
-      <BarChart data={data} layout="vertical" margin={{ left: 0, right: 16 }}>
-        <CartesianGrid horizontal={false} />
-        <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} />
-        <YAxis type="category" dataKey="board" tickLine={false} axisLine={false} width={190} interval={0} tick={{ fontSize: 11 }} />
-        <ChartTooltip cursor={false} content={<ChartTooltipContent hideIndicator />} />
-        <Bar dataKey="total" fill="var(--color-total)" radius={4} />
-      </BarChart>
     </ChartContainer>
   )
 }

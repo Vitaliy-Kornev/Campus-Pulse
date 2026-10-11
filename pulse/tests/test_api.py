@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from pulse.models import Flyer, SLUG_ALPHABET
+from pulse.models import Flyer, Membership, SLUG_ALPHABET
 from pulse.services import qr
 
 from .helpers import Factory, local_dt
@@ -14,11 +14,11 @@ from .helpers import Factory, local_dt
 class GeoJSONTests(TestCase):
     def setUp(self):
         self.owner = Factory.user("owner")
-        self.campaign = Factory.campaign(self.owner, name="Fair")
+        self.event = Factory.event(self.owner, name="Fair")
         self.board = Factory.board("Coffman")
         self.empty_board = Factory.board("Quiet Corner")
         self.retired = Factory.board("Old Kiosk", is_active=False)
-        self.flyer = Factory.flyer(self.campaign, self.board, label="blue")
+        self.flyer = Factory.flyer(self.event, self.board, label="blue")
         # 3 recent human scans (2 unique visitors), 1 old scan, 1 recent bot.
         Factory.scan(self.flyer, local_dt(1), visitor="a")
         Factory.scan(self.flyer, local_dt(1, hour=14), visitor="a")
@@ -40,7 +40,7 @@ class GeoJSONTests(TestCase):
         self.assertEqual(props["unique_scans"], 3)
         self.assertEqual(props["active_flyer_count"], 1)
         self.assertEqual(props["flyers"], [{
-            "id": self.flyer.id, "slug": self.flyer.slug, "campaign": "Fair", "campaign_id": self.campaign.id,
+            "id": self.flyer.id, "slug": self.flyer.slug, "event": "Fair", "event_id": self.event.id,
             "label": "blue", "scans": 4,
         }])
 
@@ -66,28 +66,29 @@ class GeoJSONTests(TestCase):
         self.assertEqual(props["flyers"], [])
         self.assertEqual(props["total_scans"], 4)
 
-    def test_campaign_filter(self):
-        other = Factory.campaign(self.owner, name="Other")
+    def test_event_filter(self):
+        other = Factory.event(self.owner, name="Other")
         Factory.scan(Factory.flyer(other, self.board), local_dt(1), visitor="z")
         self.assertEqual(self.features()["Coffman"]["properties"]["total_scans"], 5)
-        self.assertEqual(self.features(campaign=self.campaign.pk)["Coffman"]["properties"]["total_scans"], 4)
+        self.assertEqual(self.features(event=self.event.pk)["Coffman"]["properties"]["total_scans"], 4)
 
     def test_query_count_is_constant(self):
         for i in range(5):
-            Factory.flyer(self.campaign, Factory.board(f"Extra {i}"))
-        # session + user, then one query each for scan counts, flyers, and boards; no per-board queries.
-        with self.assertNumQueries(5):
+            Factory.flyer(self.event, Factory.board(f"Extra {i}"))
+        # session, user, and the user's club; then one query each for scan counts, flyers, board tags,
+        # and boards. No per-board queries.
+        with self.assertNumQueries(7):
             self.client.get(reverse("api_boards_geojson"))
 
 
-class CampaignApiTests(TestCase):
+class EventApiTests(TestCase):
     def setUp(self):
         self.owner = Factory.user("owner")
-        self.campaign = Factory.campaign(self.owner)
+        self.event = Factory.event(self.owner)
         self.board_a = Factory.board("A")
         self.board_b = Factory.board("B")
-        fa = Factory.flyer(self.campaign, self.board_a)
-        fb = Factory.flyer(self.campaign, self.board_b)
+        fa = Factory.flyer(self.event, self.board_a)
+        fb = Factory.flyer(self.event, self.board_b)
         Factory.scan(fa, local_dt(0, hour=9), visitor="1")
         Factory.scan(fb, local_dt(2, hour=12), visitor="2")
         Factory.scan(fb, local_dt(2, hour=12), visitor="3")
@@ -96,7 +97,7 @@ class CampaignApiTests(TestCase):
         self.client.force_login(self.owner)
 
     def test_timeseries_is_zero_filled(self):
-        rows = self.client.get(reverse("api_campaign_timeseries", args=[self.campaign.pk]), {"range": "7d"}).json()
+        rows = self.client.get(reverse("api_event_timeseries", args=[self.event.pk]), {"range": "7d"}).json()
         self.assertEqual(len(rows), 7)
         by_date = {r["date"]: r for r in rows}
         self.assertEqual(by_date[local_dt(2).date().isoformat()], {"date": local_dt(2).date().isoformat(), "total": 2, "unique": 2})
@@ -104,7 +105,7 @@ class CampaignApiTests(TestCase):
         self.assertEqual(by_date[timezone.localdate().isoformat()]["total"], 1)
 
     def test_by_board_sorted_descending(self):
-        rows = self.client.get(reverse("api_campaign_by_board", args=[self.campaign.pk])).json()
+        rows = self.client.get(reverse("api_event_by_board", args=[self.event.pk])).json()
         self.assertEqual([(r["board"], r["total"]) for r in rows], [("B", 2), ("A", 1)])
 
     def test_hourly_uses_campus_time(self):
@@ -114,7 +115,7 @@ class CampaignApiTests(TestCase):
         self.assertEqual(sum(r["total"] for r in rows), 2)
 
     def test_csv_export_excludes_bots_and_hashes(self):
-        response = self.client.get(reverse("api_campaign_export", args=[self.campaign.pk]))
+        response = self.client.get(reverse("api_event_export", args=[self.event.pk]))
         self.assertEqual(response["Content-Type"], "text/csv")
         rows = list(csv.reader(io.StringIO(b"".join(response.streaming_content).decode())))
         self.assertEqual(rows[0], ["flyer_slug", "board_name", "scanned_at", "device_type", "after_removal"])
@@ -122,12 +123,12 @@ class CampaignApiTests(TestCase):
         self.assertNotIn("visitor", ",".join(rows[0]))
 
     def test_summary_and_flyer_rows(self):
-        summary = self.client.get(reverse("api_campaign_summary", args=[self.campaign.pk]), {"range": "all"}).json()
+        summary = self.client.get(reverse("api_event_summary", args=[self.event.pk]), {"range": "all"}).json()
         self.assertEqual(summary["total"], 3)
         self.assertEqual(summary["unique"], 3)
         self.assertEqual(summary["active_flyers"], 2)
         self.assertEqual(summary["best_board"]["board"], "B")
-        rows = self.client.get(reverse("api_campaign_flyers", args=[self.campaign.pk])).json()
+        rows = self.client.get(reverse("api_event_flyers", args=[self.event.pk])).json()
         self.assertEqual(sorted((r["board"], r["total_scans"]) for r in rows), [("A", 1), ("B", 2)])
         self.assertTrue(all(r["is_active"] for r in rows))
 
@@ -135,8 +136,8 @@ class CampaignApiTests(TestCase):
 class FlyerAndQrTests(TestCase):
     def setUp(self):
         self.admin = Factory.user("admin", staff=True)
-        self.campaign = Factory.campaign(self.admin)
-        self.flyer = Factory.flyer(self.campaign)
+        self.event = Factory.event(self.admin)
+        self.flyer = Factory.flyer(self.event)
         self.client.force_login(self.admin)
 
     def test_slug_format(self):
@@ -172,11 +173,11 @@ class FlyerAndQrTests(TestCase):
             self.assertEqual(code.error, "H")
 
     def test_print_label_data(self):
-        """The print page shows the campaign name and the short URL as a fallback for failed scans."""
+        """The print page shows the event name and the short URL as a fallback for failed scans."""
         with self.settings(SITE_URL="https://campuspulse.app"):
             data = self.client.get(reverse("api_flyer_detail", args=[self.flyer.slug])).json()
         self.assertEqual(data["short_url"], f"campuspulse.app/r/{self.flyer.slug}/")
-        self.assertEqual(data["campaign"]["name"], self.campaign.name)
+        self.assertEqual(data["event"]["name"], self.event.name)
 
     def test_remove_and_repost(self):
         response = self.client.post(reverse("api_flyer_remove", args=[self.flyer.slug]))
@@ -186,7 +187,7 @@ class FlyerAndQrTests(TestCase):
         new_board = Factory.board("Elsewhere")
         response = self.client.post(reverse("api_flyer_repost", args=[self.flyer.slug]), {"board": new_board.pk}, content_type="application/json")
         new = Flyer.objects.get(board=new_board)
-        self.assertEqual(new.campaign, self.campaign)
+        self.assertEqual(new.event, self.event)
         self.assertNotEqual(new.slug, self.flyer.slug)
         self.assertEqual(response.json(), {"slug": new.slug})
 
@@ -203,10 +204,9 @@ class FlyerAndQrTests(TestCase):
         self.assertTrue(data["scan_url"].endswith(f"/r/{self.flyer.slug}/"))
         self.assertEqual(data["devices"], [{"device_type": "mobile", "total": 1}])
 
-        owner = Factory.user("owner")
-        self.flyer.campaign.owner = owner
-        self.flyer.campaign.save()
-        self.client.force_login(owner)
+        officer = Factory.user("officer")
+        Membership.objects.create(club=self.flyer.event.club, user=officer, status=Membership.ACTIVE)
+        self.client.force_login(officer)
         data = self.client.get(reverse("api_flyer_detail", args=[self.flyer.slug])).json()
         self.assertNotIn("bots", data["counts"])
 
@@ -254,7 +254,7 @@ class AuthTests(TestCase):
         self.assertEqual(self.csrf_post("api_login", {"username": "adv", "password": "wrong"}).status_code, 400)
         response = self.csrf_post("api_login", {"username": "adv", "password": "pw-12345!"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["user"], {"id": response.json()["user"]["id"], "username": "adv", "email": "adv@example.com", "full_name": "", "is_staff": False})
+        self.assertEqual(response.json()["user"], {"id": response.json()["user"]["id"], "username": "adv", "email": "adv@example.com", "full_name": "", "is_staff": False, "club": None, "clubs": []})
         self.assertEqual(self.client.get(reverse("api_session")).json()["user"]["username"], "adv")
         self.assertEqual(self.csrf_post("api_logout", {}).status_code, 204)
         self.assertIsNone(self.client.get(reverse("api_session")).json()["user"])
@@ -313,7 +313,7 @@ class SpaTests(TestCase):
         from django.conf import settings
 
         index = settings.FRONTEND_DIST / "index.html"
-        for path in ("/", "/map", "/campaigns/3", "/flyers/abc/print"):
+        for path in ("/", "/map", "/events/3", "/flyers/abc/print"):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 if index.exists():
@@ -326,3 +326,24 @@ class SpaTests(TestCase):
     def test_api_and_admin_are_not_swallowed(self):
         self.assertEqual(self.client.get("/api/nope/").status_code, 404)
         self.assertEqual(self.client.get("/admin/").status_code, 302)
+
+
+class BoardTagTests(TestCase):
+    def test_tags_are_unique_and_readable(self):
+        from pulse.services.tags import tag_map
+
+        willey = Factory.board("Willey Hall - East", building="Willey Hall")
+        wilkins = Factory.board("Wilkins Hall", building="Wilkins Hall")
+        east1 = Factory.board("Jones Hall - East 1", building="Jones Hall")
+        east2 = Factory.board("Jones Hall - East 2", building="Jones Hall")
+        coffman = Factory.board("Coffman Union", building="Coffman Memorial Union")
+        tags = tag_map()
+        self.assertEqual(len(set(tags.values())), len(tags))
+        self.assertEqual(tags[coffman.id], "CMU")
+        self.assertEqual((tags[willey.id], tags[wilkins.id]), ("WILL", "WILK"))
+        self.assertEqual((tags[east1.id], tags[east2.id]), ("JON1", "JON2"))
+
+        self.client.force_login(Factory.user("adv"))
+        rows = self.client.get(reverse("api_boards")).json()
+        self.assertEqual({r["name"]: r["tag"] for r in rows}["Coffman Union"], "CMU")
+

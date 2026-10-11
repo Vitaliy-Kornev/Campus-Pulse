@@ -47,8 +47,8 @@ class BotAndDeviceDetectionTests(TestCase):
 class CountingTests(TestCase):
     def setUp(self):
         self.owner = Factory.user()
-        self.campaign = Factory.campaign(self.owner)
-        self.flyer = Factory.flyer(self.campaign)
+        self.event = Factory.event(self.owner)
+        self.flyer = Factory.flyer(self.event)
         self.url = f"/r/{self.flyer.slug}/"
 
     def test_bot_scans_are_stored_but_excluded_from_counts(self):
@@ -57,7 +57,7 @@ class CountingTests(TestCase):
         self.assertEqual(Scan.objects.count(), 2)
         self.assertEqual(Scan.objects.filter(is_bot=True).count(), 1)
         rng = analytics.resolve_range({}, default="all")
-        self.assertEqual(analytics.totals(analytics.campaign_scans(self.campaign, rng)), {"total": 1, "unique": 1})
+        self.assertEqual(analytics.totals(analytics.event_scans(self.event, rng)), {"total": 1, "unique": 1})
         self.assertEqual(analytics.flyer_counts(self.flyer)["bots"], 1)
 
     def _scan_at(self, when):
@@ -69,14 +69,14 @@ class CountingTests(TestCase):
         self._scan_at(morning)
         self._scan_at(morning + datetime.timedelta(hours=2))
         rng = analytics.resolve_range({}, default="all")
-        self.assertEqual(analytics.totals(analytics.campaign_scans(self.campaign, rng)), {"total": 2, "unique": 1})
+        self.assertEqual(analytics.totals(analytics.event_scans(self.event, rng)), {"total": 2, "unique": 1})
 
     def test_same_visitor_on_two_days_counts_twice(self):
         day1 = timezone.now().replace(hour=15, minute=0) - datetime.timedelta(days=1)
         self._scan_at(day1)
         self._scan_at(day1 + datetime.timedelta(days=1))
         rng = analytics.resolve_range({}, default="all")
-        self.assertEqual(analytics.totals(analytics.campaign_scans(self.campaign, rng)), {"total": 2, "unique": 2})
+        self.assertEqual(analytics.totals(analytics.event_scans(self.event, rng)), {"total": 2, "unique": 2})
 
     def test_raw_ip_never_stored(self):
         ip = "203.0.113.77"
@@ -90,8 +90,17 @@ class CountingTests(TestCase):
                 for row in cursor.fetchall():
                     self.assertNotIn(ip, " ".join(str(v) for v in row), f"raw IP found in {table}")
 
-    def test_forwarded_for_uses_first_entry(self):
-        self.client.get(self.url, HTTP_USER_AGENT=IPHONE_UA, HTTP_X_FORWARDED_FOR="203.0.113.5, 10.0.0.1")
-        self.client.get(self.url, HTTP_USER_AGENT=IPHONE_UA, HTTP_X_FORWARDED_FOR="203.0.113.5, 10.0.0.2")
-        hashes = set(Scan.objects.values_list("visitor_hash", flat=True))
-        self.assertEqual(len(hashes), 1)
+    def test_forwarded_for_trusts_only_our_proxy(self):
+        # The proxy appends the real address; whatever the client put before it is ignored, so a
+        # script can't pose as new visitors by inventing IPs.
+        for fake in ("1.1.1.1", "2.2.2.2", "3.3.3.3"):
+            self.client.get(self.url, HTTP_USER_AGENT=IPHONE_UA, HTTP_X_FORWARDED_FOR=f"{fake}, 203.0.113.5")
+        self.assertEqual(Scan.objects.count(), 1)  # one visitor, and rescans within minutes count once
+        self.client.get(self.url, HTTP_USER_AGENT=IPHONE_UA, HTTP_X_FORWARDED_FOR="198.51.100.7")
+        self.assertEqual(len(set(Scan.objects.values_list("visitor_hash", flat=True))), 2)
+
+    def test_rescans_within_minutes_count_once_but_still_redirect(self):
+        for _ in range(3):
+            response = self.client.get(self.url, HTTP_USER_AGENT=IPHONE_UA)
+            self.assertEqual(response.status_code, 302)
+        self.assertEqual(Scan.objects.count(), 1)

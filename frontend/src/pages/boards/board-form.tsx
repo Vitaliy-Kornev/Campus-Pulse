@@ -16,7 +16,7 @@ import { useLeafletMap } from "@/hooks/use-leaflet-map"
 import { useUser } from "@/hooks/use-session"
 import { api, patch, post } from "@/lib/api"
 import { applyServerErrors } from "@/lib/forms"
-import { COLORS, escapeHtml, L } from "@/lib/map"
+import { escapeHtml, L, tagIcon } from "@/lib/map"
 import type { Board } from "@/lib/types"
 import { BOARD_FIELDS, BoardFields, boardBody, boardSchema, emptyBoard, toCoordinate, type BoardValues } from "@/pages/boards/board-fields"
 
@@ -115,7 +115,7 @@ function RetireBoard({ board }: { board: Board }) {
   })
   return (
     <div className="mt-4 flex flex-wrap items-center gap-3">
-      <Button variant={board.is_active ? "destructive" : "outline"} disabled={toggle.isPending} onClick={() => toggle.mutate()}>
+      <Button variant="outline" disabled={toggle.isPending} onClick={() => toggle.mutate()}>
         {board.is_active ? "Retire this board" : "Reactivate this board"}
       </Button>
       <span className="text-xs text-muted-foreground">Retired boards keep their history and are only visible to admins.</span>
@@ -123,7 +123,7 @@ function RetireBoard({ board }: { board: Board }) {
   )
 }
 
-/** Map with a draggable pin kept in sync with the latitude/longitude fields. Other boards show as dots. */
+/** Map with a draggable "NEW" tag kept in sync with the latitude/longitude fields. Other boards show as their tags. */
 function LocationPicker({ form, others }: { form: ReturnType<typeof useForm<BoardValues>>; others: Board[] }) {
   const { ref, map } = useLeafletMap()
   const pin = useRef<L.Marker | null>(null)
@@ -134,9 +134,11 @@ function LocationPicker({ form, others }: { form: ReturnType<typeof useForm<Boar
     if (!map) return
     const layer = L.layerGroup(
       others.map((b) =>
-        L.circleMarker([b.latitude, b.longitude], { radius: 5, stroke: false, fillColor: COLORS.noScans, fillOpacity: 0.7 }).bindTooltip(escapeHtml(b.name), {
-          direction: "top",
-        }),
+        L.marker([b.latitude, b.longitude], {
+          icon: tagIcon(b.tag, null, "empty"),
+          keyboard: false,
+          interactive: true,
+        }).bindTooltip(escapeHtml(b.name), { direction: "top", offset: [0, -30] }),
       ),
     ).addTo(map)
     return () => {
@@ -165,7 +167,13 @@ function LocationPicker({ form, others }: { form: ReturnType<typeof useForm<Boar
     const ln = Number(lng)
     if (lat === "" || lng === "" || Number.isNaN(la) || Number.isNaN(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) return
     if (!pin.current) {
-      pin.current = L.marker([la, ln], { draggable: true, autoPan: true }).addTo(map)
+      pin.current = L.marker([la, ln], {
+        icon: tagIcon("NEW", null, "top"),
+        draggable: true,
+        autoPan: true,
+        zIndexOffset: 1000,
+        title: "This board's location. Drag to adjust.",
+      }).addTo(map)
       pin.current.on("dragend", () => {
         const pos = pin.current!.getLatLng()
         form.setValue("latitude", toCoordinate(pos.lat), { shouldValidate: true, shouldDirty: true })

@@ -6,8 +6,9 @@ from rest_framework.response import Response
 from pulse.api.authentication import IsStaff
 from pulse.api.serializers import BoardSerializer
 from pulse.models import Board
-from pulse.services import analytics
+from pulse.services import analytics, limits
 from pulse.services.boards import get_default_campus
+from pulse.services.tags import tag_map
 
 
 @api_view(["GET", "POST"])
@@ -17,6 +18,9 @@ def board_list(request):
     Any logged-in user can add a board and it goes live immediately. Only admins edit, move, or retire.
     """
     if request.method == "POST":
+        if not request.user.is_staff:
+            # Boards go on everyone's map, so officers can add a handful a day; admins aren't limited.
+            limits.enforce(f"new-board:{request.user.pk}", 20, 86400, "new boards today")
         serializer = BoardSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         extra = {} if request.user.is_staff else {"is_active": True}  # advertisers can't add retired boards
@@ -41,10 +45,12 @@ def board_detail(request, pk):
 
 @api_view(["GET"])
 def leaderboard(request):
-    """Advertisers see their own campaigns' numbers; admins see everyone's."""
+    """Advertisers see their own events' numbers; admins see everyone's."""
+    tags = tag_map()
     return Response([
         {
             "id": b.id,
+            "tag": tags.get(b.id, ""),
             "name": b.name,
             "area": b.area,
             "building": b.building,
@@ -61,5 +67,5 @@ def leaderboard(request):
 @api_view(["GET"])
 def boards_geojson(request):
     rng = analytics.resolve_range(request.GET, default="all")
-    campaign = analytics.require_visible_campaign(request.user, request.GET.get("campaign"))
-    return Response(analytics.boards_geojson(request.user, rng, campaign=campaign))
+    event = analytics.require_visible_event(request.user, request.GET.get("event"))
+    return Response(analytics.boards_geojson(request.user, rng, event=event))

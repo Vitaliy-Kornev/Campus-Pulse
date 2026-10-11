@@ -14,17 +14,22 @@ class HealthCheckTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"ok")
 
+    def test_healthz_fails_when_the_database_is_down(self):
+        with mock.patch("pulse.middleware.connection.cursor", side_effect=Exception("down")), self.assertLogs("pulse.middleware", "ERROR"):
+            response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 503)
+
 
 class ScanRedirectTests(TestCase):
     def setUp(self):
         self.owner = Factory.user()
-        self.campaign = Factory.campaign(self.owner, url="https://example.com/campaign")
-        self.flyer = Factory.flyer(self.campaign)
+        self.event = Factory.event(self.owner, url="https://example.com/event")
+        self.flyer = Factory.flyer(self.event)
 
-    def test_logs_scan_and_redirects_to_campaign_url(self):
+    def test_logs_scan_and_redirects_to_event_url(self):
         response = self.client.get(f"/r/{self.flyer.slug}/", HTTP_USER_AGENT=IPHONE_UA)
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], "https://example.com/campaign")
+        self.assertEqual(response["Location"], "https://example.com/event")
         self.assertEqual(response["Cache-Control"], "no-store")
         scan = Scan.objects.get()
         self.assertEqual(scan.flyer, self.flyer)
@@ -43,7 +48,7 @@ class ScanRedirectTests(TestCase):
             with self.assertLogs("pulse.services.tracking", level="ERROR"):
                 response = self.client.get(f"/r/{self.flyer.slug}/", HTTP_USER_AGENT=IPHONE_UA)
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], "https://example.com/campaign")
+        self.assertEqual(response["Location"], "https://example.com/event")
         self.assertEqual(Scan.objects.count(), 0)
 
     def test_unknown_slug_returns_friendly_404(self):
